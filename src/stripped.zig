@@ -1731,3 +1731,103 @@ test "complex composition" {
   try testMerging(value);
 }
 
+// test "array of unions with dynamic fields" {
+//   const Message = union(enum) {
+//     text: []const u8,
+//     code: u32,
+//     err: void,
+//   };
+//
+//   const messages = [3]Message{
+//     .{ .text = "hello" },
+//     .{ .code = 404 },
+//     .{ .text = "world" },
+//   };
+//
+//   try testMerging(messages);
+// }
+//
+// test "pointer and optional abuse" {
+//   const Point = struct { x: i32, y: i32 };
+//   const PointerAbuse = struct {
+//     a: ?*const Point,
+//     b: *const ?Point,
+//     c: ?*const ?Point,
+//     d: []const ?*const ?Point,
+//   };
+//
+//   const p1: Point = .{ .x = 1, .y = 1 };
+//   const p2: ?Point = .{ .x = 2, .y = 2 };
+//   const p3: ?Point = null;
+//
+//   const value = PointerAbuse{
+//     .a = &p1,
+//     .b = &p2,
+//     .c = &p2,
+//     .d = &.{ &p2, null, &p3 },
+//   };
+//
+//   try testMerging(value);
+// }
+//
+// test "union with multiple dynamic fields" {
+//   const Packet = union(enum) {
+//     message: []const u8,
+//     points: []const struct { x: f32, y: f32 },
+//     code: u32,
+//   };
+//
+//   try testMerging(Packet{ .message = "hello world" });
+//   try testMerging(Packet{ .points = &.{.{ .x = 1.0, .y = 2.0 }, .{ .x = 3.0, .y = 4.0}} });
+//   try testMerging(Packet{ .code = 404 });
+// }
+//
+// test "recursion limit with dereference" {
+//   const Node = struct {
+//     payload: u32,
+//     next: ?*const @This(),
+//   };
+//
+//   const n3 = Node{ .payload = 3, .next = null };
+//   const n2 = Node{ .payload = 2, .next = &n3 };
+//   const n1 = Node{ .payload = 1, .next = &n2 };
+//
+//   try _testMergingReading(n1, .{ .T = Node, .allow_recursive_rereferencing = true });
+// }
+//
+// test "recursive type merging" {
+//   const Node = struct {
+//     payload: u32,
+//     next: ?*const @This(),
+//   };
+//
+//   var n4 = Node{ .payload = 4, .next = null };
+//   var n3 = Node{ .payload = 3, .next = &n4 };
+//   var n2 = Node{ .payload = 2, .next = &n3 };
+//   var n1 = Node{ .payload = 1, .next = &n2 };
+//
+//   try _testMergingReading(n1, .{ .T = Node, .allow_recursive_rereferencing = true });
+// }
+//
+// test "mutual recursion" {
+//   const Namespace = struct {
+//     const NodeA = struct {
+//       name: []const u8,
+//       b: ?*const NodeB,
+//     };
+//     const NodeB = struct {
+//       value: u32,
+//       a: ?*const NodeA,
+//     };
+//   };
+//
+//   const NodeA = Namespace.NodeA;
+//   const NodeB = Namespace.NodeB;
+//
+//   var a2 = NodeA{ .name = "a2", .b = null };
+//   var b1 = NodeB{ .value = 100, .a = &a2 };
+//   const a1 = NodeA{ .name = "a1", .b = &b1 };
+//
+//   try _testMergingReading(a1, .{ .T = NodeA, .allow_recursive_rereferencing = true });
+// }
+//
