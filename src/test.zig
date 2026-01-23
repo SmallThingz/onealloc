@@ -137,7 +137,7 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
 
 const testing = std.testing;
 const root = @import("root.zig");
-const ToMergedOptions = root.ToMergedOptions;
+const MergeOptions = root.MergeOptions;
 const Context = root.Context;
 const ToMergedT = root.ToMergedT;
 
@@ -146,7 +146,7 @@ test {
   std.testing.refAllDeclsRecursive(root);
 }
 
-fn _testMergingDemerging(value: anytype, comptime options: ToMergedOptions) !void {
+fn _testMergingDemerging(value: anytype, comptime options: MergeOptions) !void {
   const MergedT = Context.init(options, ToMergedT);
   const static_size = MergedT.Signature.static_size;
   var buffer: [static_size + 4096]u8 = undefined;
@@ -163,7 +163,7 @@ fn _testMergingDemerging(value: anytype, comptime options: ToMergedOptions) !voi
 
   try expectEqual(&value, @as(*@TypeOf(value), @ptrCast(@alignCast(&buffer))));
 
-  const copy = try testing.allocator.alignedAlloc(u8, MergedT.Signature.alignment.toByteUnits(), total_size);
+  const copy = try testing.allocator.alignedAlloc(u8, MergedT.Signature.alignment, total_size);
   defer testing.allocator.free(copy);
   @memcpy(copy, buffer[0..total_size]);
   @memset(buffer[0..total_size], 0);
@@ -192,7 +192,7 @@ test "primitives" {
 test "pointers" {
   var x: u64 = 12345;
   try testMerging(&x);
-  try _testMergingDemerging(&x, .{ .T = *u64, .dereference = false });
+  try _testMergingDemerging(&x, .{ .T = *u64, .depointer = false });
 }
 
 test "slices" {
@@ -611,7 +611,7 @@ test "recursion limit with dereference" {
 
   // This should only serialize n1 and the pointer to n2. 
   // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
-  try _testMergingDemerging(n1, .{ .T = Node, .allow_recursive_rereferencing = true });
+  try _testMergingDemerging(n1, .{ .T = Node });
 }
 
 test "recursive type merging" {
@@ -625,7 +625,7 @@ test "recursive type merging" {
   const n2 = Node{ .payload = 2, .next = &n3 };
   const n1 = Node{ .payload = 1, .next = &n2 };
 
-  try _testMergingDemerging(n1, .{ .T = Node, .allow_recursive_rereferencing = true  });
+  try _testMergingDemerging(n1, .{ .T = Node });
 }
 
 test "mutual recursion" {
@@ -648,7 +648,7 @@ test "mutual recursion" {
   const b1 = NodeB{ .value = 100, .a = &a2 };
   const a1 = NodeA{ .name = "a1", .b = &b1 };
 
-  try _testMergingDemerging(a1, .{ .T = NodeA, .allow_recursive_rereferencing = true });
+  try _testMergingDemerging(a1, .{ .T = NodeA });
 }
 
 test "deeply nested, mutually recursive structures with no data cycles" {
@@ -720,7 +720,7 @@ test "deeply nested, mutually recursive structures with no data cycles" {
     .child_b = &b_middle,
   };
 
-  try _testMergingDemerging(root_node, .{ .T = MegaStructureA, .allow_recursive_rereferencing = true });
+  try _testMergingDemerging(root_node, .{ .T = MegaStructureA });
 }
 
 
@@ -791,7 +791,7 @@ test "Wrapper repointer" {
   defer wrapped.deinit(testing.allocator);
 
   // Manually move the memory to a new buffer (like reading from a file etc.)
-  const new_buffer = try testing.allocator.alignedAlloc(u8, @alignOf(@TypeOf(wrapped.memory)), wrapped.memory.len);
+  const new_buffer = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(@TypeOf(wrapped.memory))), wrapped.memory.len);
   @memcpy(new_buffer, wrapped.memory);
   
   // free the old memory and update the wrapper's memory slice
