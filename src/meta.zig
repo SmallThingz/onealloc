@@ -27,7 +27,7 @@ fn Mem(comptime _alignment: std.mem.Alignment) type {
     }
 
     pub fn initAssert(v: []u8) @This() {
-      std.debug.assert(std.mem.isAligned(@intFromPtr(v.ptr), _alignment.toByteUnits()));
+      if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(v.ptr), _alignment.toByteUnits()));
       return .{ .ptr = @alignCast(v.ptr), .len = if (keep_len) v.len else {} };
     }
 
@@ -54,13 +54,13 @@ fn Mem(comptime _alignment: std.mem.Alignment) type {
       return self.till(end_index).ptr[0..end_index];
     }
 
-    pub fn assertAligned(self: @This(), comptime new_alignment: std.mem.Alignment) if (new_alignment == _alignment) @This() else Mem(new_alignment) {
-      std.debug.assert(std.mem.isAligned(@intFromPtr(self.ptr), new_alignment.toByteUnits()));
+    pub fn assertAligned(self: @This(), comptime new_alignment: usize) Mem(.fromByteUnits(new_alignment)) {
+      if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(self.ptr), new_alignment));
       return .{ .ptr = @alignCast(self.ptr), .len = self.len };
     }
 
-    pub fn alignForward(self: @This(), comptime new_alignment: std.mem.Alignment) if (new_alignment == _alignment) @This() else Mem(new_alignment) {
-      const aligned_ptr = std.mem.alignForward(usize, @intFromPtr(self.ptr), new_alignment.toByteUnits());
+    pub fn alignForward(self: @This(), comptime new_alignment: usize) Mem(.fromByteUnits(new_alignment)) {
+      const aligned_ptr = std.mem.alignForward(usize, @intFromPtr(self.ptr), new_alignment);
       return .{
         .ptr = @ptrFromInt(aligned_ptr),
         .len = self.len - (aligned_ptr - @intFromPtr(self.ptr)) // Underflow => user error
@@ -77,6 +77,8 @@ fn Mem(comptime _alignment: std.mem.Alignment) type {
 
 pub fn GetContext(Options: type) type {
   return struct {
+    /// What should be the alignment of the type being merged
+    align_hint: ?std.mem.Alignment,
     /// The types that have been seen so far
     seen_types: []const type,
     /// The types that have been merged so far (each corresponding to a seen type)
@@ -140,5 +142,11 @@ pub fn GetContext(Options: type) type {
       return retval;
     }
   };
+}
+
+pub fn NonConstPointer(T: type) type {
+  var info = @typeInfo(T).pointer;
+  info.pointer.is_const = false;
+  return @Type(.{.pointer = info.pointer});
 }
 
