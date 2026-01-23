@@ -1,6 +1,6 @@
 const std = @import("std");
-
-const SerializationFunctions = @import("serialization_functions.zig");
+pub const SerializationFunctions = @import("serialization_functions.zig");
+const SF = SerializationFunctions;
 
 /// Options to control how merging of a type is performed
 pub const MergeOptions = struct {
@@ -23,4 +23,34 @@ pub const MergeOptions = struct {
   serialize_unknown_pointer_as_usize: bool = false,
 };
 
+pub fn ToMergedT(context: SF.Context) type {
+  const T = context.options.T;
+  @setEvalBranchQuota(1000_000);
+  return switch (@typeInfo(T)) {
+    .type, .noreturn, .comptime_int, .comptime_float, .undefined, .@"fn", .frame, .@"anyframe", .enum_literal => {
+      @compileError("Type '" ++ @tagName(std.meta.activeTag(@typeInfo(T))) ++ "' is not mergeable\n");
+    },
+    .void, .bool, .int, .float, .vector, .error_set, .null, .@"enum" => SF.GetDirectMergedT(context),
+    .pointer => |pi| switch (pi.size) {
+      .many, .c => if (context.options.serialize_unknown_pointer_as_usize) SF.GetDirectMergedT(context) else {
+        @compileError(@tagName(pi.size) ++ " pointer cannot be serialized for type " ++ @typeName(T) ++ ", consider setting serialize_many_pointer_as_usize to true\n");
+      },
+      .one => switch (@typeInfo(pi.child)) {
+        .@"opaque" => if (@hasDecl(pi.child, "Underlying") and @TypeOf(pi.child.Underlying) == SF.MergedSignature) pi.child else {
+          @compileError("A non-mergeable opaque " ++ @typeName(pi.child) ++ " was provided to `ToMergedT`\n");
+        },
+        else => SF.GetPointerMergedT(context),
+      },
+      .slice => SF.GetSliceMergedT(context),
+    },
+    .array => SF.GetArrayMergedT(context),
+    .@"struct" => SF.GetStructMergedT(context),
+    .optional => SF.GetOptionalMergedT(context),
+    .error_union => SF.GetErrorUnionMergedT(context),
+    .@"union" => SF.GetUnionMergedT(context),
+    .@"opaque" => if (@hasDecl(T, "Underlying") and @TypeOf(T.Underlying) == SF.MergedSignature) T else {
+      @compileError("A non-mergeable opaque " ++ @typeName(T) ++ " was provided to `ToMergedT`\n");
+    },
+  };
+}
 

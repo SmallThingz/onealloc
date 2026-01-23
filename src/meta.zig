@@ -144,7 +144,7 @@ pub fn GetContext(Options: type) type {
   };
 }
 
-pub fn NonConstPointer(T: type) type {
+pub fn NonConstPointer(T: type, size: std.builtin.Type.Pointer.Size) type {
   var info = @typeInfo(T).pointer;
   info.pointer.is_const = false;
   return @Type(.{.pointer = info.pointer});

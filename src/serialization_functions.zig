@@ -44,7 +44,7 @@ pub fn GetPointerMergedT(context: Context) type {
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      const child_static: meta.NonConstPointer(T) = @ptrCast(aligned_dynamic.ptr);
+      const child_static: meta.NonConstPointer(T, .one) = @ptrCast(aligned_dynamic.ptr);
       child_static.* = val.*.*;
       dynamic.* = aligned_dynamic.from(@sizeOf(pi.child));
       Child.write(child_static, dynamic);
@@ -89,8 +89,8 @@ pub fn GetSliceMergedT(context: Context) type {
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      const child_static: []pi.child = blk: {
-        const child_static_ptr: [*]pi.child = @ptrCast(aligned_dynamic.ptr);
+      const child_static: meta.NonConstPointer(T, .slice) = blk: {
+        const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
         break :blk child_static_ptr[0..val.*.len];
       };
       // We can't write the dynamic data before static data as we would need to get the size of dynamic data first. Would is prettie inefficient
@@ -375,129 +375,4 @@ pub fn GetUnionMergedT(context: Context) type {
   if (Retval.next_context.seen_recursive >= 0) return context.result_types[Retval.next_context.seen_recursive];
   if (ui.tag_type == null) @compileError("Cannot merge untagged union with dynamic data: " ++ @typeName(T));
   return Retval;
-}
-
-pub fn ToMergedT(context: Context) type {
-  const T = context.options.T;
-  @setEvalBranchQuota(1000_000);
-  return switch (@typeInfo(T)) {
-    .type, .noreturn, .comptime_int, .comptime_float, .undefined, .@"fn", .frame, .@"anyframe", .enum_literal => {
-      @compileError("Type '" ++ @tagName(std.meta.activeTag(@typeInfo(T))) ++ "' is not mergeable\n");
-    },
-    .void, .bool, .int, .float, .vector, .error_set, .null => GetDirectMergedT(context),
-    .pointer => |pi| switch (pi.size) {
-      .many, .c => if (context.options.serialize_unknown_pointer_as_usize) GetDirectMergedT(context) else {
-        @compileError(@tagName(pi.size) ++ " pointer cannot be serialized for type " ++ @typeName(T) ++ ", consider setting serialize_many_pointer_as_usize to true\n");
-      },
-      .one => switch (@typeInfo(pi.child)) {
-        .@"opaque" => if (@hasDecl(pi.child, "Signature") and @TypeOf(pi.child.Signature) == MergedSignature) pi.child else {
-          @compileError("A non-mergeable opaque " ++ @typeName(pi.child) ++ " was provided to `ToMergedT`\n");
-        },
-        else => GetPointerMergedT(context),
-      },
-      .slice => GetSliceMergedT(context),
-    },
-    .array => GetArrayMergedT(context),
-    .@"struct" => GetStructMergedT(context),
-    .optional => |oi| switch (@typeInfo(oi.child)) {
-      .pointer => |pi| switch (pi.size) {
-        .many, .c => if (context.options.serialize_unknown_pointer_as_usize) GetDirectMergedT(context) else {
-          @compileError(@tagName(pi.size) ++ " pointer cannot be serialized for type " ++ @typeName(T) ++ ", consider setting serialize_many_pointer_as_usize to true\n");
-        },
-        .one => GetPointerMergedT(context),
-        .slice => GetSliceMergedT(context),
-      },
-      else => GetOptionalMergedT(context),
-    },
-    .error_union => GetErrorUnionMergedT(context),
-    .@"enum" => GetDirectMergedT(context),
-    .@"union" => GetUnionMergedT(context),
-    .@"opaque" => if (@hasDecl(T, "Signature") and @TypeOf(T.Signature) == MergedSignature) T else {
-      @compileError("A non-mergeable opaque " ++ @typeName(T) ++ " was provided to `ToMergedT`\n");
-    },
-  };
-}
-
-/// A generic wrapper that manages the memory for a merged object.
-pub fn WrapConverted(MergedT: type) type {
-  const T = MergedT.Signature.T;
-  return struct {
-    pub const Underlying = MergedT;
-    memory: []align(MergedT.Signature.alignment.toByteUnits()) u8,
-
-    /// Returns the total size that would be required to store this value
-    /// Expects there to be no data cycles
-    pub fn getSize(value: *const T) usize {
-      const static_size = MergedT.Signature.static_size;
-      return if (@hasDecl(MergedT, "getDynamicSize")) MergedT.getDynamicSize(value, static_size) else static_size;
-    }
-
-    /// Allocates memory and merges the initial value into a self-managed buffer.
-    /// The Wrapper instance owns the memory and must be de-initialized with `deinit`.
-    /// Expects there to be no data cycles
-    pub fn init(allocator: std.mem.Allocator, value: *const T) !@This() {
-      const memory = try allocator.alignedAlloc(u8, MergedT.Signature.alignment, getSize(value));
-      var retval: @This() = .{ .memory = memory };
-      retval.setAssert(value);
-      return retval;
-    }
-
-    /// Frees the memory owned by the Wrapper.
-    pub fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
-      allocator.free(self.memory);
-    }
-
-    /// Returns a mutable pointer to the merged data, allowing modification.
-    /// The pointer is valid as long as the Wrapper is not de-initialized.
-    pub fn get(self: *const @This()) *T {
-      return @as(*T, @ptrCast(self.memory.ptr));
-    }
-
-    /// Creates a new, independent Wrapper containing a deep copy of the data.
-    pub fn clone(self: *const @This(), allocator: std.mem.Allocator) !@This() {
-      return try @This().init(allocator, self.get());
-    }
-
-    /// Set a new value into the wrapper. Invalidates any references to the old value
-    /// Expects there to be no data cycles
-    pub fn set(self: *@This(), allocator: std.mem.Allocator, value: *const T) !void {
-      const memory = try allocator.realloc(self.memory, getSize(value));
-      self.memory = memory;
-      return self.setAssert(value);
-    }
-
-    /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
-    /// Expects there to be no data cycles
-    pub fn setAssert(self: *@This(), value: *const T) void {
-      if (builtin.mode == .Debug) { // debug.assert alone may does not be optimized out
-        std.debug.assert(getSize(value) <= self.memory.len);
-      }
-      const dynamic_buffer = MergedT.Signature.D.init(self.memory[MergedT.Signature.static_size..]).alignForward(.fromByteUnits(MergedT.Signature.D.alignment));
-      const written = MergedT.write(value, .initAssert(self.memory[0..MergedT.Signature.static_size]), dynamic_buffer);
-
-      if (builtin.mode == .Debug) {
-        std.debug.assert(written + @intFromPtr(dynamic_buffer.ptr) - @intFromPtr(self.memory.ptr) == getSize(value));
-      }
-    }
-
-    /// Updates the internal pointers within the merged data structure. This is necessary
-    /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-    pub fn repointer(self: *@This()) void {
-      if (!std.meta.hasFn(MergedT, "getDynamicSize")) return; // Static data, no updation needed
-
-      const static_size = MergedT.Signature.static_size;
-      if (static_size == 0) return;
-
-      const dynamic_from = std.mem.alignForward(usize, static_size, MergedT.Signature.D.alignment);
-      const written = MergedT.repointer(.initAssert(self.memory[0..static_size]), .initAssert(self.memory[dynamic_from..]));
-
-      if (builtin.mode == .Debug) {
-        std.debug.assert(written + dynamic_from == getSize(self.get()));
-      }
-    }
-  };
-}
-
-pub fn Wrapper(options: MergeOptions) type {
-  return WrapConverted(Context.init(options, ToMergedT));
 }
