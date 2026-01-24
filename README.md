@@ -8,8 +8,8 @@ Merged memory is self-contained. It may be used for:
 * Cache-friendly memory layouts.
 
 > [!WARNING]
-> **Experimental:** This library is in active development.
-> **Portability:** Same **pointer size** and **endianness** is required for all platforms sharing the data.
+> **Experimental:** This library is in active development.<br/>
+> **Portability:** Same **pointer size** and **endianness** is required for all platforms sharing the data.<br/>
 > **Safety:** Only use this on trusted data. It is incredibly easy to make a malicious payload that does out-of-bounds accesses.
 
 # Why OneAlloc?
