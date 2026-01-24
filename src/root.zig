@@ -143,3 +143,86 @@ pub fn Wrapper(T: type, options: MergeOptions) type {
   return WrapConverted(T, Context.init(T, options, ToMergedT));
 }
 
+pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
+  if (@hasDecl(MergedT, "STATIC") and MergedT.STATIC) {
+    @compileError("Dynamic wrapper for static struct does not make any sense");
+  }
+
+  return struct {
+    pub const Underlying = MergedT;
+    memory: []align(alignment)u8,
+
+    pub const T = _T;
+    const alignment = MergedT.Underlying._align.toByteUnits();
+
+    /// Allocates memory and merges the initial value into a self-managed buffer. The Wrapper instance owns the memory and must be de-initialized with `deinit`.
+    /// buffer is allocated only for the dynamic data; thus the passed in instance is modified
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn init(noalias val: *T, noalias gpa: std.mem.Allocator) @This() {
+      const size = getSize(val);
+      const memory = try gpa.alignedAlloc(u8, alignment, size);
+      var retval: @This() = .{ .memory = memory };
+      retval.setAssert(val);
+      return retval;
+    }
+
+    /// Returns the total size that would be required to store this value
+    /// Expects there to be no data cycles
+    pub fn getSize(value: *const T) usize {
+      var size = 0;
+      MergedT.addDynamicSize(value, &size);
+      return size;
+    }
+
+    /// Creates a new, independent Wrapper containing a deep copy of the data.
+    pub fn clone(self: *const @This(), val: *T, noalias gpa: std.mem.Allocator) !@This() {
+      // We could return try @This().init(allocator, self.get());
+      // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
+      const retval: @This() = try .{ .memory = gpa.alignedAlloc(u8, alignment, self.memory.len)};
+      @memcpy(retval.memory, self.memory);
+      retval.repointer(val);
+      return retval;
+    }
+
+    /// Set a new value into the wrapper. Invalidates any references to the old value
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn set(self: *@This(), noalias gpa: std.mem.Allocator, value: *T) !void {
+      const memory = try gpa.realloc(self.memory, getSize(value));
+      self.memory = memory;
+      return self.setAssert(value);
+    }
+
+    /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn setAssert(self: *@This(), val: *T) void {
+      if (builtin.mode == .Debug) { // debug.assert alone may not be optimized out
+        std.debug.assert(getSize(val) <= self.memory.len);
+      }
+
+      var dynamic_buffer = SF.Dynamic.init(self.memory[MergedT.Signature.static_size..]);
+      MergedT.write(val, &dynamic_buffer);
+
+      if (builtin.mode == .Debug) {
+        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) - @intFromPtr(self.memory.ptr) == getSize(val));
+      }
+    }
+
+    /// Updates the internal pointers within the merged data structure. This is necessary
+    /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+    pub fn repointer(self: *const @This(), val: *T) void {
+      MergedT.repointer(val, SF.Dynamic.init(self.memory[MergedT.Signature.static_size..]));
+    }
+
+    /// Frees the memory owned by the Wrapper.
+    pub fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
+      allocator.free(self.memory);
+    }
+  };
+}
+
+/// Returns null if the underlying type has NO dynamic data
+pub fn DynamicWrapper(T: type, options: MergeOptions) ?type {
+  const MergedT = Context.init(T, options, ToMergedT);
+  if (@hasDecl(MergedT, "STATIC") and MergedT.STATIC) return null;
+  return DynamicWrapConverted(T, MergedT);
+}

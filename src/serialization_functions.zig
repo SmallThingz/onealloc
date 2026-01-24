@@ -12,6 +12,8 @@ pub const Context = meta.GetContext(MergeOptions);
 pub const MergedSignature = struct {
   /// The underlying type that was transformed
   T: type,
+  /// The alignment of dynamic data, should be used by the Wrappers only
+  _align: std.mem.Alignment = .@"1",
 };
 
 pub const Dynamic = Mem(.@"1");
@@ -20,7 +22,7 @@ pub const Dynamic = Mem(.@"1");
 pub fn GetDirectMergedT(context: Context) type {
   const T = context.Type;
   return opaque {
-    pub const Underlying = MergedSignature {.T = T, .D = Mem(.@"1")};
+    pub const Underlying = MergedSignature {.T = T};
     pub const STATIC = true; // Allow others to see if their child is static. This is required in slices
     pub inline fn write(noalias _: *T, noalias _: *Dynamic) void {}
     pub inline fn addDynamicSize(noalias _: *const T, noalias _: *usize) void {}
@@ -37,7 +39,7 @@ pub fn GetPointerMergedT(context: Context) type {
   std.debug.assert(pi.size == .one);
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature {.T = T};
+    pub const Underlying = MergedSignature {.T = T, ._align = .fromByteUnits(pi.alignment)};
     const Child = next_context.T(pi.child).merge();
     const next_context = context.see(T, @This());
 
@@ -81,7 +83,7 @@ pub fn GetSliceMergedT(context: Context) type {
   std.debug.assert(pi.size == .slice);
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature{.T = T};
+    pub const Underlying = MergedSignature{.T = T, ._align = .fromByteUnits(pi.alignment)};
     const Child = next_context.T(pi.child).merge();
     const SubStatic = @hasDecl(Child, "STATIC") and Child.STATIC;
     const next_context = context.see(T, @This());
@@ -141,7 +143,7 @@ pub fn GetArrayMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T};
+    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
@@ -172,7 +174,7 @@ pub fn GetStructMergedT(context: Context) type {
   };
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature{.T = T, .D = Mem(.@"1")};
+    pub const Underlying = MergedSignature{.T = T, ._align = if (STATIC) .@"1" else sorted_dynamic_fields[0].merged.Underlying._align};
     const STATIC = dynamic_field_count == 0;
     const next_context = context.see(T, @This());
 
@@ -270,7 +272,7 @@ pub fn GetOptionalMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T, .D = Mem(.@"1")};
+    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       if (val.* != null) {
@@ -303,7 +305,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T};
+    pub const Underlying = MergedSignature{.T = T, ._align = Payload.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       if (val.*) |*payload_val| Child.write(payload_val, dynamic);
@@ -324,7 +326,11 @@ pub fn GetUnionMergedT(context: Context) type {
   if (!context.options.recurse) return GetDirectMergedT(context);
   const ui = @typeInfo(T).@"union";
   const Retval = opaque {
-    pub const Underlying = MergedSignature{.T = T};
+    pub const Underlying = MergedSignature{.T = T, ._align = blk: {
+      var min = @intFromEnum(fields[0].merged.Underlying._align);
+      for (fields[1..]) |f| min = @min(min, @intFromEnum(f.merged.Underlying._align));
+      break :blk @enumFromInt(min);
+    }};
     const TagType = ui.tag_type orelse @compileError("Union '" ++ @typeName(T) ++ "' has no tag type");
     const next_context = context.see(T, @This());
 
