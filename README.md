@@ -22,7 +22,7 @@ It also makes managing the lifetime of the object simpler.
 const std = @import("std");
 const onealloc = @import("onealloc");
 
-// 1. Define your complex type
+// Define your complex type
 const User = struct {
   id: u64,
   name: []const u8,
@@ -33,7 +33,7 @@ const User = struct {
 pub fn main() !void {
   const gpa = std.heap.page_allocator;
 
-  // 2. Create a Wrapper type with default options
+  // Create a Wrapper type with default options
   const UserWrapper = onealloc.Wrapper(User, .{});
 
   var meta: u32 = 42;
@@ -44,27 +44,24 @@ pub fn main() !void {
     .metadata = &meta,
   };
 
-  // 3. Allocate and merge everything into one block
+  // Allocate and merge everything into one block
   var wrapper = try UserWrapper.init(&user_data, gpa);
   defer wrapper.deinit(gpa);
 
-  // 4. Access the data (wrapper.get() returns *User)
+  // Access the data (wrapper.get() returns *User)
   const p = wrapper.get();
   std.debug.print("User: {s}, Role 0: {s}\n", .{ p.name, p.roles[0] });
 
   // The memory is contiguous!
   std.debug.print("Total allocation: {d} bytes\n", .{wrapper.memory.len});
+
+  // Send memory to other process; use repointer in the other process.
 }
 ```
 
 ## Installation
 
-1.  Fetch the package:
-  ```sh
-  zig fetch --save "git+https://github.com/ItsMeSamey/onealloc#main"
-  ```
-
-2.  Add to `build.zig.zon`:
+1.  Add to `build.zig.zon`:
   ```zig
   .dependencies = .{
     .onealloc = .{
@@ -74,7 +71,7 @@ pub fn main() !void {
   },
   ```
 
-3.  Add to `build.zig`:
+2.  Add to `build.zig`:
   ```zig
   const onealloc_dep = b.dependency("onealloc", .{
     .target = target,
@@ -183,9 +180,9 @@ OneAlloc divides the single memory block into two sections: `[ Static Buffer | D
 
 ## Limitations
 
-1.  **Data Cycles:** A structure that points to itself (directly or indirectly) will cause a stack overflow during merging.
+1 **Data Cycles:** A structure that points to itself (directly or indirectly) will cause a stack overflow during merging.
   * *Supported:* Recursive Types (e.g., Linked List definitions).
   * *Unsupported:* Recursive Data (e.g., Node A points to Node B, Node B points to Node A).
-2.  **Unknown Pointers:** `[*c]`, `[*]`, and `opaque` pointers are compile errors unless `serialize_unknown_pointer_as_usize` is enabled in which case, the literal pointer address is stored.
-3. **Data Cycles Will Cause Stack Overflow:** Attempting to merge a data structure with a cycle will cause infinite recursion and crash the program.
+2 **Unknown Pointers:** `[*c]`, `[*]`, and `opaque` pointers are compile errors unless `serialize_unknown_pointer_as_usize` is enabled in which case, the literal pointer address is stored.
+3 **Data Cycles Will Cause Stack Overflow:** Attempting to merge a data structure with a cycle will cause infinite recursion and crash the program.
 
