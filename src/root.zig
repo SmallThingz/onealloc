@@ -6,8 +6,6 @@ const Context = SF.Context;
 
 /// Options to control how merging of a type is performed
 pub const MergeOptions = struct {
-  /// Recurse into structs and unions
-  recurse: bool = true,
   /// Whether to dereference pointers or use them by value
   depointer: bool = true,
   /// What is the maximum number of expansion of slices that can be done

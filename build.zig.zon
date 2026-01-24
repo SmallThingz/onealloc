@@ -5,7 +5,9 @@
   .paths = .{
     "build.zig",
     "build.zig.zon",
-    "src",
+    "src/meta.zig",
+    "src/root.zig",
+    "src/serialization_functions.zig",
     "LICENSE",
     "readme.md",
   },

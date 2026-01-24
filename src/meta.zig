@@ -121,10 +121,6 @@ pub fn GetContext(Options: type) type {
         break :blk -1;
       };
 
-      if (have_seen != -1 and !self.options.recurse) {
-        @compileError("Recursive type " ++ @typeName(new_T) ++ " is not allowed to be referenced by another type");
-      }
-
       var retval = self;
       retval.seen_types = self.seen_types ++ [1]type{new_T};
       retval.result_types = self.result_types ++ [1]type{Result};

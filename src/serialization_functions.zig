@@ -202,7 +202,6 @@ pub fn GetArrayMergedT(context: Context) type {
 pub fn GetStructMergedT(context: Context) type {
   const T = context.Type;
   @setEvalBranchQuota(1000_000);
-  if (!context.options.recurse) return GetDirectMergedT(context);
 
   const si = @typeInfo(T).@"struct";
   const ProcessedField = struct {
@@ -386,7 +385,6 @@ pub fn GetErrorUnionMergedT(context: Context) type {
 
 pub fn GetUnionMergedT(context: Context) type {
   const T = context.Type;
-  if (!context.options.recurse) return GetDirectMergedT(context);
   const ui = @typeInfo(T).@"union";
 
   const ProcessedField = struct {
