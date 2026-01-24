@@ -393,9 +393,9 @@ pub fn GetUnionMergedT(context: Context) type {
 
   const Retval = opaque {
     pub const Underlying = MergedSignature{.T = T, ._align = blk: {
-      var min = @intFromEnum(fields[0].merged.Underlying._align);
-      for (fields[1..]) |f| min = @min(min, @intFromEnum(f.merged.Underlying._align));
-      break :blk @enumFromInt(min);
+      var max = @intFromEnum(fields[0].merged.Underlying._align);
+      for (fields[1..]) |f| max = @max(max, @intFromEnum(f.merged.Underlying._align));
+      break :blk @enumFromInt(max);
     }};
     const TagType = ui.tag_type orelse @compileError("Union '" ++ @typeName(T) ++ "' has no tag type");
     const next_context = context.see(T, @This());

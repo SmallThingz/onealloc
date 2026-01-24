@@ -6,6 +6,10 @@ const testing = std.testing;
 const MergeOptions = root.MergeOptions;
 const Context = SF.Context;
 
+test {
+  std.testing.refAllDeclsRecursive(@This());
+}
+
 fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void {
   const print = std.debug.print;
 
@@ -158,13 +162,14 @@ fn testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
   const T = @TypeOf(value);
   const MergedT = Context.init(T, options, ToMergedT);
 
-  const static_size = @sizeOf(T);
-  var buffer: [static_size + 4096]u8 align(@alignOf(T)) = undefined;
-
   const Wrapped = root.WrapConverted(T, MergedT);
   var wrapped: Wrapped = undefined;
 
   const total_size: usize = Wrapped.getSize(&value);
+
+  const static_size = @sizeOf(T);
+  const alignment: comptime_int = comptime Wrapped.alignment.toByteUnits();
+  var buffer: [static_size + 4096]u8 align(alignment) = undefined;
   if (total_size > buffer.len) {
     std.log.err("buffer too small for test. need {d}, have {d}", .{ total_size, buffer.len });
     return error.NoSpaceLeft;

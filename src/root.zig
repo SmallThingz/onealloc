@@ -61,11 +61,11 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
   std.debug.assert(_T == MergedT.Underlying.T);
   return struct {
     pub const Underlying = MergedT;
-    memory: []align(@alignOf(T)) u8,
+    memory: []align(alignment.toByteUnits()) u8,
 
     pub const T = _T;
     pub const STATIC = @hasDecl(MergedT, "STATIC") and MergedT.STATIC;
-    const alignment = std.mem.Alignment.fromByteUnits(@alignOf(T));
+    pub const alignment = std.mem.Alignment.fromByteUnits(@alignOf(T)).max(MergedT.Underlying._align);
 
     /// Allocates memory and merges the initial value into a self-managed buffer.
     /// The Wrapper instance owns the memory and must be de-initialized with `deinit`.
@@ -77,21 +77,13 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
       return retval;
     }
 
-    const initial_size = blk: {
-      const static_size: usize = @sizeOf(T);
-      const static_tz = @ctz(static_size);
-      if (static_tz > @intFromEnum(meta.max_align)) break :blk 0;
-      const static_align = @as(std.mem.Alignment, @enumFromInt(static_tz)).toByteUnits();
-      break :blk meta.max_align.toByteUnits() - static_align;
-    };
-
     /// Returns the total size that would be required to store this value
     ///
     /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
     pub fn getSize(value: *const T) usize {
-      var size: usize = initial_size;
+      var size: usize = @sizeOf(T);
       if (!STATIC) MergedT.addDynamicSize(value, &size);
-      return size - initial_size + @sizeOf(T);
+      return size;
     }
 
     /// Returns a mutable pointer to the merged data, allowing modification. The pointer is valid as long as the Wrapper is not de-initialized.
@@ -139,10 +131,6 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
     /// Updates the internal pointers within the merged data structure. This is necessary
     /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
     pub fn repointer(self: *const @This()) void {
-      if (true) {
-        std.debug.print("initial_size: {b}\n", .{initial_size});
-        @panic("OKKKKK");
-      }
       if (STATIC) return;
       var dynamic = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
       MergedT.repointer(self.get(), &dynamic);
@@ -172,7 +160,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
     memory: []align(alignment.toByteUnits()) u8,
 
     pub const T = _T;
-    const alignment = MergedT.Underlying._align;
+    pub const alignment = MergedT.Underlying._align;
 
     /// Allocates memory and merges the initial value into a self-managed buffer. The Wrapper instance owns the memory and must be de-initialized with `deinit`.
     /// buffer is allocated only for the dynamic data; thus the passed in instance is modified
@@ -183,14 +171,12 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
       return retval;
     }
 
-    const initial_size: comptime_int = meta.max_align.toByteUnits() - 1;
-
     /// Returns the total size that would be required to store this value
     /// Expects there to be no data cycles
     pub fn getSize(value: *const T) usize {
-      var size: usize = initial_size;
+      var size: usize = 0;
       MergedT.addDynamicSize(value, &size);
-      return size - initial_size;
+      return size;
     }
 
     /// Creates a new, independent Wrapper containing a deep copy of the data.
@@ -253,4 +239,10 @@ pub fn DynamicWrapper(T: type, options: MergeOptions) type {
   const MergedT = Context.init(T, options, ToMergedT);
   if (@hasDecl(MergedT, "STATIC") and MergedT.STATIC) return void;
   return DynamicWrapConverted(T, MergedT);
+}
+
+test {
+  std.testing.refAllDeclsRecursive(@This());
+  std.testing.refAllDeclsRecursive(meta);
+  std.testing.refAllDeclsRecursive(SF);
 }
