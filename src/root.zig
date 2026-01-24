@@ -106,7 +106,10 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
     /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
     pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *const T) !void {
       const new_len = getSize(value);
-      self.memory = gpa.remap(self.memory, new_len) orelse try gpa.alignedAlloc(u8, alignment, new_len);
+      self.memory = gpa.remap(self.memory, new_len) orelse blk: {
+        gpa.free(self.memory);
+        break :blk try gpa.alignedAlloc(u8, alignment, new_len);
+      };
       self.setAssert(value);
     }
 
@@ -191,7 +194,10 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
     /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
     pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *T) !void {
       const new_len = getSize(value);
-      self.memory = gpa.remap(self.memory, new_len) orelse try gpa.alignedAlloc(u8, alignment, new_len);
+      self.memory = gpa.remap(self.memory, new_len) orelse blk: {
+        gpa.free(self.memory);
+        break :blk try gpa.alignedAlloc(u8, alignment, new_len);
+      };
       return self.setAssert(value);
     }
 

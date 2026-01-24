@@ -147,43 +147,35 @@ test {
   std.testing.refAllDeclsRecursive(root);
 }
 
-fn _testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
+fn testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
   var value = _value;
-  const MergedT = Context.init(@TypeOf(value), options, ToMergedT);
-  const static_size = @sizeOf(MergedT.Underlying.T);
-  var buffer: [static_size + 4096]u8 = undefined;
+  const T = @TypeOf(value);
+  const MergedT = Context.init(T, options, ToMergedT);
 
-  var total_size: usize = static_size;
-  if (!(@hasDecl(MergedT, "STATIC") and MergedT.STATIC)) MergedT.addDynamicSize(&value, &total_size);
+  const static_size = @sizeOf(T);
+  var buffer: [static_size + 4096]u8 align(@alignOf(T)) = undefined;
 
+  const Wrapped = root.WrapConverted(T, MergedT);
+  var wrapped: Wrapped = undefined;
+
+  const total_size: usize = Wrapped.getSize(&value);
   if (total_size > buffer.len) {
     std.log.err("buffer too small for test. need {d}, have {d}", .{ total_size, buffer.len });
     return error.NoSpaceLeft;
   }
 
-  var dynamic: SF.Dynamic = .init(buffer[static_size..]);
-  MergedT.write(&value, &dynamic);
-  try std.testing.expectEqual(total_size, @intFromPtr(dynamic.ptr) - @intFromPtr(&buffer));
+  wrapped.memory = @ptrCast(@alignCast(buffer[0..total_size]));
+  wrapped.setAssert(&value);
+  try expectEqual(&value, wrapped.get());
 
-  try expectEqual(&value, @as(*@TypeOf(value), @ptrCast(@alignCast(&buffer))));
+  var copy = try wrapped.clone(testing.allocator);
+  defer copy.deinit(testing.allocator);
 
-  const copy = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(MergedT.Underlying.T)), total_size);
-  defer testing.allocator.free(copy);
-  @memcpy(copy, buffer[0..total_size]);
-  @memset(buffer[0..total_size], 0xbd);
-
-  // repointer only is non static
-  if (!(@hasDecl(MergedT, "STATIC") and MergedT.STATIC)) {
-    var dynamic_2 = SF.Dynamic.init(copy[static_size..]);
-    MergedT.repointer(@ptrCast(copy.ptr), &dynamic_2);
-  }
-
-  // verify
-  try expectEqual(&value, @as(*@TypeOf(value), @ptrCast(copy)));
+  try expectEqual(&value, copy.get());
 }
 
 fn testMerging(value: anytype) !void {
-  try _testMergingDemerging(value, .{});
+  try testMergingDemerging(value, .{});
 }
 
 test "primitives" {
@@ -196,7 +188,7 @@ test "primitives" {
 test "pointers" {
   var x: u64 = 12345;
   try testMerging(&x);
-  try _testMergingDemerging(@as(*u64, &x), .{.depointer = false });
+  try testMergingDemerging(@as(*u64, &x), .{.depointer = false});
 }
 
 test "slices" {
@@ -615,7 +607,7 @@ test "recursion limit with dereference" {
 
   // This should only serialize n1 and the pointer to n2. 
   // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
-  try _testMergingDemerging(n1, .{});
+  try testMergingDemerging(n1, .{});
 }
 
 test "recursive type merging" {
@@ -624,12 +616,12 @@ test "recursive type merging" {
     next: ?*const @This(),
   };
 
-  const n4 = Node{ .payload = 4, .next = undefined };
+  const n4 = Node{ .payload = 4, .next = null };
   const n3 = Node{ .payload = 3, .next = &n4 };
   const n2 = Node{ .payload = 2, .next = &n3 };
   const n1 = Node{ .payload = 1, .next = &n2 };
 
-  try _testMergingDemerging(n1, .{});
+  try testMergingDemerging(n1, .{});
 }
 
 test "mutual recursion" {
@@ -652,7 +644,7 @@ test "mutual recursion" {
   const b1 = NodeB{ .value = 100, .a = &a2 };
   const a1 = NodeA{ .name = "a1", .b = &b1 };
 
-  try _testMergingDemerging(a1, .{});
+  try testMergingDemerging(a1, .{});
 }
 
 test "deeply nested, mutually recursive structures with no data cycles" {
@@ -724,7 +716,7 @@ test "deeply nested, mutually recursive structures with no data cycles" {
     .child_b = &b_middle,
   };
 
-  try _testMergingDemerging(root_node, .{});
+  try testMergingDemerging(root_node, .{});
 }
 
 

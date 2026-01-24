@@ -44,8 +44,8 @@ pub fn GetPointerMergedT(context: Context) type {
     const next_context = context.see(T, @This());
 
     pub fn write(noalias _val: *T, noalias dynamic: *Dynamic) void {
-      const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       var ogptr = @intFromPtr(dynamic.ptr);
+      const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
       const child_static: meta.NonConstPointer(T, .one) = @ptrCast(aligned_dynamic.ptr);
       child_static.* = val.*.*;
@@ -67,11 +67,17 @@ pub fn GetPointerMergedT(context: Context) type {
     }
 
     pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      val.* = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
-      dynamic.* = aligned_dynamic.from(0);
+      val.* = @ptrCast(aligned_dynamic.ptr);
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child));
       Child.repointer(val.*, dynamic);
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+      }
     }
   };
 
@@ -93,13 +99,14 @@ pub fn GetSliceMergedT(context: Context) type {
     const next_context = context.see(T, @This());
 
     pub fn write(noalias _val: *T, noalias dynamic: *Dynamic) void {
-      const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       var ogptr = @intFromPtr(dynamic.ptr);
+      const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
       const child_static: meta.NonConstPointer(T, .slice) = blk: {
         const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
         break :blk child_static_ptr[0..val.*.len];
       };
+
       // We can't write the dynamic data before static data as we would need to get the size of dynamic data first. Would is prettie inefficient
       @memcpy(child_static, val.*);
       dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * child_static.len);
@@ -124,12 +131,23 @@ pub fn GetSliceMergedT(context: Context) type {
     }
 
     pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      val.*.ptr = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
-      dynamic.* = aligned_dynamic.from(0);
+      const child_static: meta.NonConstPointer(T, .slice) = blk: {
+        const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
+        break :blk child_static_ptr[0..val.*.len];
+      };
+
+      val.*.ptr = @ptrCast(child_static.ptr); // TODO: figure out if this is ok
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * child_static.len);
       if (!SubStatic) {
         for (0 .. val.*.len) |i| Child.repointer(&val.*[i], dynamic);
+      }
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(&child_static, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
       }
     }
   };
@@ -154,7 +172,13 @@ pub fn GetArrayMergedT(context: Context) type {
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
+      var ogptr = @intFromPtr(dynamic.ptr);
       inline for (val) |*elem| Child.write(elem, dynamic);
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+      }
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
@@ -164,7 +188,13 @@ pub fn GetArrayMergedT(context: Context) type {
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
+      var ogptr = @intFromPtr(dynamic.ptr);
       inline for (val) |*elem| Child.repointer(elem, dynamic);
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+      }
     }
   };
 }
@@ -261,8 +291,14 @@ pub fn GetStructMergedT(context: Context) type {
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
+      var ogptr = @intFromPtr(dynamic.ptr);
       inline for (sorted_dynamic_fields) |f| {
         f.merged.repointer(&@field(val, f.original.name), dynamic);
+      }
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
       }
     }
   };
@@ -298,7 +334,15 @@ pub fn GetOptionalMergedT(context: Context) type {
     }
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
-      if (val.* != null) Child.repointer(&(val.*.?), dynamic);
+      if (val.* != null) {
+        var ogptr = @intFromPtr(dynamic.ptr);
+        Child.repointer(&(val.*.?), dynamic);
+
+        if (builtin.mode == .Debug) {
+          addDynamicSize(val, &ogptr);
+          std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+        }
+      }
     }
   };
 }
@@ -315,7 +359,13 @@ pub fn GetErrorUnionMergedT(context: Context) type {
     pub const Underlying = MergedSignature{.T = T, ._align = Payload.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
+      var ogptr = @intFromPtr(dynamic.ptr);
       if (val.*) |*payload_val| Child.write(payload_val, dynamic);
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+      }
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
@@ -323,7 +373,13 @@ pub fn GetErrorUnionMergedT(context: Context) type {
     }
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
+      var ogptr = @intFromPtr(dynamic.ptr);
       if (val.*) |*payload_val| Child.repointer(payload_val, dynamic);
+
+      if (builtin.mode == .Debug) {
+        addDynamicSize(val, &ogptr);
+        std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+      }
     }
   };
 }
@@ -368,28 +424,51 @@ pub fn GetUnionMergedT(context: Context) type {
       const active_tag = std.meta.activeTag(val.*);
 
       inline for (fields) |f| {
-        const field_as_tag = comptime std.meta.stringToEnum(TagType, f.original.name);
-        if (field_as_tag == active_tag) f.merged.write(&@field(val, f.original.name), dynamic);
+        const field_as_tag = @field(TagType, f.original.name);
+        if (field_as_tag == active_tag) {
+          var ogptr = @intFromPtr(dynamic.ptr);
+          f.merged.write(&@field(val, f.original.name), dynamic);
+
+          if (builtin.mode == .Debug) {
+            addDynamicSize(val, &ogptr);
+            std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+          }
+          return;
+        }
       }
-      unreachable; // Should never heppen
+      unreachable;
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
       const active_tag = std.meta.activeTag(val.*);
 
       inline for (fields) |f| {
-        const field_as_tag = comptime std.meta.stringToEnum(TagType, f.original.name);
-        if (field_as_tag == active_tag) f.merged.addDynamicSize(&@field(val, f.original.name), size);
+        const field_as_tag = @field(TagType, f.original.name);
+        if (field_as_tag == active_tag) {
+          f.merged.addDynamicSize(&@field(val, f.original.name), size);
+          return;
+        }
       }
+      unreachable;
     }
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       const active_tag = std.meta.activeTag(val.*);
 
       inline for (fields) |f| {
-        const field_as_tag = comptime std.meta.stringToEnum(TagType, f.original.name);
-        if (field_as_tag == active_tag) f.merged.repointer(&@field(val, f.original.name), dynamic);
+        const field_as_tag = @field(TagType, f.original.name);
+        if (field_as_tag == active_tag) {
+          var ogptr = @intFromPtr(dynamic.ptr);
+          f.merged.repointer(&@field(val, f.original.name), dynamic);
+
+          if (builtin.mode == .Debug) {
+            addDynamicSize(val, &ogptr);
+            std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
+          }
+          return;
+        } 
       }
+      unreachable;
     }
   };
 
