@@ -67,10 +67,9 @@ pub fn Mem(comptime _alignment: std.mem.Alignment) type {
       };
     }
 
-    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: std.io.AnyWriter) !void {
-      _ = .{ fmt, options };
-      if (keep_len) try std.fmt.format(writer, "{any}", .{self.ptr[0..self.len]})
-      else try std.fmt.format(writer, "{s}.{{ ptr = {any}}}", .{ @typeName(@This()) , self.ptr });
+    pub fn format(self: @This(), writer: *std.Io.Writer) !void {
+      if (keep_len) try writer.print("{any}", .{self.ptr[0..self.len]})
+      else try writer.print("{s}.{{ ptr = {any}}}", .{ @typeName(@This()) , self.ptr });
     }
   };
 }

@@ -156,7 +156,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
   return struct {
     pub const Underlying = MergedT;
-    memory: []align(alignment)u8,
+    memory: []align(alignment.toByteUnits()) u8,
 
     pub const T = _T;
     const alignment = MergedT.Underlying._align;
@@ -179,13 +179,15 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
     }
 
     /// Creates a new, independent Wrapper containing a deep copy of the data.
-    pub fn clone(self: *const @This(), val: *T, gpa: std.mem.Allocator) !@This() {
+    /// `new_val` is modified in-place; is stores then pointers inside of the returned wrapper
+    pub fn clone(self: *const @This(), old_val: *const T, gpa: std.mem.Allocator) !std.meta.Tuple(&.{T, @This()}) {
       // We could return try @This().init(allocator, self.get());
       // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
       const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len)};
       @memcpy(retval.memory, self.memory);
-      retval.repointer(val);
-      return retval;
+      var new_val = old_val.*;
+      retval.repointer(&new_val);
+      return .{new_val, retval};
     }
 
     /// Set a new value into the wrapper. Invalidates any references to the old value
@@ -231,9 +233,9 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
   };
 }
 
-/// Returns null if the underlying type has NO dynamic data
-pub fn DynamicWrapper(T: type, options: MergeOptions) ?type {
+/// Returns void if the underlying type has NO dynamic data
+pub fn DynamicWrapper(T: type, options: MergeOptions) type {
   const MergedT = Context.init(T, options, ToMergedT);
-  if (@hasDecl(MergedT, "STATIC") and MergedT.STATIC) return null;
+  if (@hasDecl(MergedT, "STATIC") and MergedT.STATIC) return void;
   return DynamicWrapConverted(T, MergedT);
 }

@@ -355,11 +355,11 @@ pub fn GetErrorUnionMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = Payload.Underlying._align};
+    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
-      if (val.*) |*payload_val| Child.write(payload_val, dynamic);
+      Child.write(&(val.* catch return), dynamic);
 
       if (builtin.mode == .Debug) {
         addDynamicSize(val, &ogptr);
@@ -368,12 +368,12 @@ pub fn GetErrorUnionMergedT(context: Context) type {
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
-      if (val.*) |*payload_val| Child.addDynamicSize(payload_val, size);
+      Child.addDynamicSize(&(val.* catch return), size);
     }
 
     pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
-      if (val.*) |*payload_val| Child.repointer(payload_val, dynamic);
+      Child.repointer(&(val.* catch return), dynamic);
 
       if (builtin.mode == .Debug) {
         addDynamicSize(val, &ogptr);

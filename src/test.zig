@@ -34,13 +34,18 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
 
     .pointer => |pointer| {
       switch (pointer.size) {
-        .one, .many, .c => {
+        .one, .c => {
           if (actual == expected) {
-            // std.debug.dumpCurrentStackTrace(null);
-            // print("pointers are same for {s}\n", .{ @typeName(@TypeOf(actual)) });
             return;
           }
           return expectEqual(actual.*, expected.*);
+        },
+        .many => {
+          if (actual != expected) {
+            print("expected pointers to be the same for {s}\n", .{ @typeName(@TypeOf(actual)) });
+            print("expected: {any}\nactual: {any}\n", .{ expected, actual });
+            return error.TestExpectedEqual;
+          }
         },
         .slice => {
           if (actual.len != expected.len) {
@@ -733,7 +738,7 @@ test "Wrapper init, get, and deinit" {
 
   const p = wrapped_point.get();
   try expectEqual(@as(i32, 42), p.x);
-  try std.testing.expectEqualSlices(u8, "hello", p.y);
+  try std.testing.expectEqualStrings("hello", p.y);
 }
 
 test "Wrapper clone" {
@@ -797,7 +802,7 @@ test "Wrapper repointer" {
   // Verify that data is correct and pointers are valid
   const entry = wrapped.get();
   try testing.expectEqual(@as(u64, 12345), entry.timestamp);
-  try testing.expectEqualSlices(u8, "initial message", entry.message);
+  try testing.expectEqualStrings("initial message", entry.message);
 
   // ensure the slice pointer points inside the *new* buffer
   const memory_start = @intFromPtr(wrapped.memory.ptr);
@@ -807,4 +812,147 @@ test "Wrapper repointer" {
   try testing.expect(slice_start >= memory_start and slice_end <= memory_end);
 }
 
+test "serialization_functions: unknown pointers as usize" {
+  const S = struct { ptr: [*]u8 };
+  var dummy: u8 = 0;
+  const val = S{ .ptr = @ptrCast(&dummy) };
+  
+  try testMergingDemerging(val, .{ .serialize_unknown_pointer_as_usize = true });
+}
 
+test "serialization_functions: opaque with signature" {
+  const MyT = u32;
+  const MyMergedOpaque = opaque {
+    pub const Underlying = SF.MergedSignature{ .T = MyT, ._align = .@"4" };
+    pub const STATIC = true;
+    pub fn write(_: *MyT, _: *SF.Dynamic) void {}
+    pub fn addDynamicSize(_: *const MyT, _: *usize) void {}
+    pub fn repointer(_: *MyT, _: *SF.Dynamic) void {}
+  };
+
+  const context = Context.init(MyMergedOpaque, .{}, ToMergedT);
+  try testing.expect(context == MyMergedOpaque);
+}
+
+test "serialization_functions: alignment sorting in structs" {
+  const S = struct {
+    a: []const u8,  // align 1
+    b: []const u32, // align 4
+    c: []const u64, // align 8
+  };
+  
+  const val = S{
+    .a = "1",
+    .b = &.{1},
+    .c = &.{1},
+  };
+  
+  try testMerging(val);
+}
+
+test "serialization_functions: error union with dynamic payload" {
+  const MyError = error{Failure};
+  const S = struct { data: MyError![]const u8 };
+  
+  try testMerging(S{ .data = "payload" });
+  try testMerging(S{ .data = MyError.Failure });
+}
+
+test "meta: Mem utility functions" {
+  var buf: [64]u8 align(16) = undefined;
+  var mem = SF.Dynamic.init(&buf);
+
+  const sub_mem = mem.from(16);
+  try testing.expect(@intFromPtr(sub_mem.ptr) == @intFromPtr(mem.ptr) + 16);
+
+  const unaligned = mem.from(1);
+  const realigned = unaligned.alignForward(8);
+  try testing.expect(std.mem.isAligned(@intFromPtr(realigned.ptr), 8));
+  
+  _ = mem.assertAligned(16);
+
+  var out_buf: std.ArrayList(u8) = .empty;
+  defer out_buf.deinit(testing.allocator);
+
+  try out_buf.writer(testing.allocator).print("{f}", .{mem});
+  try testing.expect(out_buf.items.len > 0);
+}
+
+test "meta: Context helpers" {
+  const options1 = MergeOptions{ .deslice = false };
+  const options2 = MergeOptions{ .deslice = true };
+  const ctx = Context{
+    .Type = u32,
+    .align_hint = null,
+    .seen_types = &.{},
+    .result_types = &.{},
+    .seen_recursive = -1,
+    .options = options1,
+    .merge_fn = ToMergedT,
+  };
+
+  const ctx2 = ctx.reop(options2);
+  try testing.expect(ctx2.options.deslice == true);
+
+  const ctx3 = ctx.T(f32);
+  try testing.expect(ctx3.Type == f32);
+}
+
+test "root: DynamicWrapper and DynamicWrapConverted" {
+  const S = struct {
+    name: []const u8,
+    id: u32,
+  };
+
+  const DynWrap = root.DynamicWrapper(S, .{});
+  var val = S{ .name = "original", .id = 123 };
+
+  var dw = try DynWrap.init(&val, testing.allocator);
+  defer dw.deinit(testing.allocator);
+
+  try testing.expectEqualStrings("original", val.name);
+  
+  const mem_start = @intFromPtr(dw.memory.ptr);
+  const mem_end = mem_start + dw.memory.len;
+  try testing.expect(@intFromPtr(val.name.ptr) >= mem_start);
+  try testing.expect(@intFromPtr(val.name.ptr) < mem_end);
+
+  var val2 = S{ .name = "new name that is longer", .id = 456 };
+  try dw.set(testing.allocator, &val2);
+  try testing.expectEqualStrings("new name that is longer", val2.name);
+
+  const val3, var dw2 = try dw.clone(&val2, testing.allocator);
+  defer dw2.deinit(testing.allocator);
+  try testing.expectEqualStrings("new name that is longer", val3.name);
+}
+
+test "root: DynamicWrapper returns null for static types" {
+  const StaticS = struct { a: u32, b: i32 };
+  const res = root.DynamicWrapper(StaticS, .{});
+  try testing.expect(res == void);
+}
+
+test "serialization_functions: alignForward underflow catch" {
+  var buf: [4]u8 align(4) = undefined;
+  const mem = SF.Dynamic.init(&buf);
+  const offset = mem.from(2);
+  _ = offset.alignForward(4); 
+}
+
+test "serialization_functions: nested deslicing false" {
+  const S = struct { data: []const u8 };
+  const val = S{ .data = "test" };
+  const MergedT = Context.init(S, .{ .deslice = false }, ToMergedT);
+  var size: usize = 0;
+  MergedT.addDynamicSize(&val, &size);
+  try testing.expect(size == 0);
+}
+
+test "serialization_functions: depointer false" {
+  const x: u32 = 42;
+  const ptr: *const u32 = &x;
+  const MergedT = Context.init(*const u32, .{ .depointer = false }, ToMergedT);
+  var size: usize = 0;
+  MergedT.addDynamicSize(&ptr, &size);
+  try testing.expect(size == 0);
+}
