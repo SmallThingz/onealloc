@@ -12,9 +12,6 @@ Merged memory is self-contained. It may be used for:
 > **Portability:** Same **pointer size** and **endianness** is required for all platforms sharing the data.
 > **Safety:** Only use this on trusted data. It is incredibly easy to make a malicious payload that does out-of-bounds accesses.
 
-> [!NOTE]
-> If there is any word above that you didn't understand; please consider NOT using this library.
-
 # Why OneAlloc?
 Structs containing several slices / pointers can lead to poor performance due to scattered memory access patterns, which is bad to CPU caching.
 It also makes managing the lifetime of the object simpler.
