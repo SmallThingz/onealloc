@@ -1,4 +1,9 @@
 const std = @import("std");
+const root = @import("root.zig");
+const SF = @import("serialization_functions.zig");
+const testing = std.testing;
+const MergeOptions = root.MergeOptions;
+const Context = SF.Context;
 
 fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void {
   const print = std.debug.print;
@@ -135,10 +140,6 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
   }
 }
 
-const testing = std.testing;
-const root = @import("root.zig");
-const MergeOptions = root.MergeOptions;
-const Context = root.Context;
 const ToMergedT = root.ToMergedT;
 
 test {
@@ -146,32 +147,35 @@ test {
   std.testing.refAllDeclsRecursive(root);
 }
 
-fn _testMergingDemerging(value: anytype, comptime options: MergeOptions) !void {
-  const MergedT = Context.init(options, ToMergedT);
-  const static_size = MergedT.Signature.static_size;
+fn _testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
+  var value = _value;
+  const MergedT = Context.init(@TypeOf(value), options, ToMergedT);
+  const static_size = @sizeOf(MergedT.Underlying.T);
   var buffer: [static_size + 4096]u8 = undefined;
 
-  const total_size = if (std.meta.hasFn(MergedT, "getDynamicSize")) MergedT.getDynamicSize(&value, static_size) else static_size;
+  var total_size: usize = static_size;
+  if (!(@hasDecl(MergedT, "STATIC") and MergedT.STATIC)) MergedT.addDynamicSize(&value, &total_size);
+
   if (total_size > buffer.len) {
     std.log.err("buffer too small for test. need {d}, have {d}", .{ total_size, buffer.len });
     return error.NoSpaceLeft;
   }
 
-  const dynamic_from = std.mem.alignForward(usize, static_size, MergedT.Signature.D.alignment);
-  const written_dynamic_size = MergedT.write(&value, .initAssert(buffer[0..static_size]), .initAssert(buffer[dynamic_from..]));
-  try std.testing.expectEqual(total_size - dynamic_from, written_dynamic_size);
+  var dynamic: SF.Dynamic = .init(buffer[static_size..]);
+  MergedT.write(&value, &dynamic);
+  try std.testing.expectEqual(total_size, @intFromPtr(dynamic.ptr) - @intFromPtr(&buffer));
 
   try expectEqual(&value, @as(*@TypeOf(value), @ptrCast(@alignCast(&buffer))));
 
-  const copy = try testing.allocator.alignedAlloc(u8, MergedT.Signature.alignment, total_size);
+  const copy = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(MergedT.Underlying.T)), total_size);
   defer testing.allocator.free(copy);
   @memcpy(copy, buffer[0..total_size]);
-  @memset(buffer[0..total_size], 0);
+  @memset(buffer[0..total_size], 0xbd);
 
   // repointer only is non static
-  if (std.meta.hasFn(MergedT, "getDynamicSize")) {
-    const repointered_size = MergedT.repointer(.initAssert(copy[0..static_size]), .initAssert(copy[dynamic_from..]));
-    try std.testing.expectEqual(written_dynamic_size, repointered_size);
+  if (!(@hasDecl(MergedT, "STATIC") and MergedT.STATIC)) {
+    var dynamic_2 = SF.Dynamic.init(copy[static_size..]);
+    MergedT.repointer(@ptrCast(copy.ptr), &dynamic_2);
   }
 
   // verify
@@ -179,7 +183,7 @@ fn _testMergingDemerging(value: anytype, comptime options: MergeOptions) !void {
 }
 
 fn testMerging(value: anytype) !void {
-  try _testMergingDemerging(value, .{ .T = @TypeOf(value) });
+  try _testMergingDemerging(value, .{});
 }
 
 test "primitives" {
@@ -192,7 +196,7 @@ test "primitives" {
 test "pointers" {
   var x: u64 = 12345;
   try testMerging(&x);
-  try _testMergingDemerging(&x, .{ .T = *u64, .depointer = false });
+  try _testMergingDemerging(@as(*u64, &x), .{.depointer = false });
 }
 
 test "slices" {
@@ -611,7 +615,7 @@ test "recursion limit with dereference" {
 
   // This should only serialize n1 and the pointer to n2. 
   // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
-  try _testMergingDemerging(n1, .{ .T = Node });
+  try _testMergingDemerging(n1, .{});
 }
 
 test "recursive type merging" {
@@ -625,7 +629,7 @@ test "recursive type merging" {
   const n2 = Node{ .payload = 2, .next = &n3 };
   const n1 = Node{ .payload = 1, .next = &n2 };
 
-  try _testMergingDemerging(n1, .{ .T = Node });
+  try _testMergingDemerging(n1, .{});
 }
 
 test "mutual recursion" {
@@ -648,7 +652,7 @@ test "mutual recursion" {
   const b1 = NodeB{ .value = 100, .a = &a2 };
   const a1 = NodeA{ .name = "a1", .b = &b1 };
 
-  try _testMergingDemerging(a1, .{ .T = NodeA });
+  try _testMergingDemerging(a1, .{});
 }
 
 test "deeply nested, mutually recursive structures with no data cycles" {
@@ -720,7 +724,7 @@ test "deeply nested, mutually recursive structures with no data cycles" {
     .child_b = &b_middle,
   };
 
-  try _testMergingDemerging(root_node, .{ .T = MegaStructureA });
+  try _testMergingDemerging(root_node, .{});
 }
 
 
@@ -732,7 +736,7 @@ const Wrapper = root.Wrapper;
 
 test "Wrapper init, get, and deinit" {
   const Point = struct { x: i32, y: []const u8 };
-  var wrapped_point = try Wrapper(.{ .T = Point }).init(testing.allocator, &.{ .x = 42, .y = "hello" });
+  var wrapped_point = try Wrapper(Point, .{}).init(&.{ .x = 42, .y = "hello" }, testing.allocator);
   defer wrapped_point.deinit(testing.allocator);
 
   const p = wrapped_point.get();
@@ -742,7 +746,7 @@ test "Wrapper init, get, and deinit" {
 
 test "Wrapper clone" {
   const Data = struct { id: u32, items: []const u32 };
-  var wrapped1 = try Wrapper(.{ .T = Data }).init(testing.allocator, &.{ .id = 1, .items = &.{ 10, 20, 30 } });
+  var wrapped1 = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{ 10, 20, 30 } }, testing.allocator);
   defer wrapped1.deinit(testing.allocator);
 
   var wrapped2 = try wrapped1.clone(testing.allocator);
@@ -762,7 +766,7 @@ test "Wrapper clone" {
 
 test "Wrapper set" {
   const Data = struct { id: u32, items: []const u32 };
-  var wrapped = try Wrapper(.{ .T = Data }).init(testing.allocator, &.{ .id = 1, .items = &.{10} });
+  var wrapped = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{10} }, testing.allocator);
   defer wrapped.deinit(testing.allocator);
 
   // Set to a larger value
@@ -784,10 +788,7 @@ test "Wrapper repointer" {
     message: []const u8,
   };
 
-  var wrapped = try Wrapper(.{ .T = LogEntry }).init(
-    testing.allocator,
-    &.{ .timestamp = 12345, .message = "initial message" },
-  );
+  var wrapped = try Wrapper(LogEntry, .{}).init(&.{ .timestamp = 12345, .message = "initial message" }, testing.allocator);
   defer wrapped.deinit(testing.allocator);
 
   // Manually move the memory to a new buffer (like reading from a file etc.)

@@ -43,7 +43,8 @@ pub fn GetPointerMergedT(context: Context) type {
     const Child = next_context.T(pi.child).merge();
     const next_context = context.see(T, @This());
 
-    pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
+    pub fn write(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       var ogptr = @intFromPtr(dynamic.ptr);
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
       const child_static: meta.NonConstPointer(T, .one) = @ptrCast(aligned_dynamic.ptr);
@@ -61,13 +62,16 @@ pub fn GetPointerMergedT(context: Context) type {
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
       size.* = std.mem.alignForward(usize, size.*, pi.alignment);
-      size += @sizeOf(pi.child);
+      size.* += @sizeOf(pi.child);
       Child.addDynamicSize(val.*, size);
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) usize {
-      val.* = @ptrCast(dynamic.ptr); // TODO: figure out if this is ok
-      Child.repointer(val.*, dynamic.from(@sizeOf(pi.child)));
+    pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
+      const aligned_dynamic = dynamic.alignForward(pi.alignment);
+      val.* = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
+      dynamic.* = aligned_dynamic.from(0);
+      Child.repointer(val.*, dynamic);
     }
   };
 
@@ -88,7 +92,8 @@ pub fn GetSliceMergedT(context: Context) type {
     const SubStatic = @hasDecl(Child, "STATIC") and Child.STATIC;
     const next_context = context.see(T, @This());
 
-    pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
+    pub fn write(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       var ogptr = @intFromPtr(dynamic.ptr);
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
       const child_static: meta.NonConstPointer(T, .slice) = blk: {
@@ -99,30 +104,32 @@ pub fn GetSliceMergedT(context: Context) type {
       @memcpy(child_static, val.*);
       dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * child_static.len);
       if (!SubStatic) {
-        for (child_static) |*elem| Child.write(elem, dynamic);
+        for (0 .. child_static.len) |i| Child.write(&child_static[i], dynamic);
       }
 
       if (builtin.mode == .Debug) {
-        Child.addDynamicSize(&child_static, &ogptr);
+        addDynamicSize(&child_static, &ogptr);
         std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
       }
 
-      val.*.ptr = @ptrCast(dynamic.ptr); // TODO: figure out if this is ok
+      val.*.ptr = child_static.ptr; // TODO: figure out if this is ok
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
       size.* = std.mem.alignForward(usize, size.*, pi.alignment);
       size.* += @sizeOf(pi.child) * val.*.len;
       if (!SubStatic) {
-        for (val.*) |*elem| Child.addDynamicSize(elem, size);
+        for (0 .. val.*.len) |i| Child.addDynamicSize(&val.*[i], size);
       }
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
-      val.*.ptr = @ptrCast(dynamic.ptr); // TODO: figure out if this is ok
+    pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+      const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
+      const aligned_dynamic = dynamic.alignForward(pi.alignment);
+      val.*.ptr = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
+      dynamic.* = aligned_dynamic.from(0);
       if (!SubStatic) {
-        var child_dynamic = dynamic.from(@sizeOf(pi.child) * val.*.len);
-        for (val.*) |*elem| Child.repointer(elem, &child_dynamic);
+        for (0 .. val.*.len) |i| Child.repointer(&val.*[i], dynamic);
       }
     }
   };
@@ -155,7 +162,7 @@ pub fn GetArrayMergedT(context: Context) type {
       inline for (val) |*elem| Child.addDynamicSize(elem, size);
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
+    pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
       inline for (val) |*elem| Child.repointer(elem, dynamic);
     }
@@ -203,7 +210,7 @@ pub fn GetStructMergedT(context: Context) type {
     /// The field with max alignment requirement for dynamic data is in first place
     const sorted_dynamic_fields = blk: {
       @setEvalBranchQuota(1000_000);
-      var dyn_fields: [dynamic_field_count]ProcessedField = &.{};
+      var dyn_fields: [dynamic_field_count]ProcessedField = undefined;
       var i: usize = 0;
       for (fields) |f| {
         if (@hasDecl(f.merged, "STATIC") and f.merged.STATIC) continue;
@@ -217,7 +224,7 @@ pub fn GetStructMergedT(context: Context) type {
         fn greaterThan(self: @This(), lhs: usize, rhs: usize) bool {
           const ls = self.fields[lhs].merged.Underlying;
           const rs = self.fields[rhs].merged.Underlying;
-          if (ls.D.alignment != rs.D.alignment) return ls.D.alignment > rs.D.alignment;
+          if (ls._align != rs._align) return @intFromEnum(ls._align) > @intFromEnum(rs._align);
           return false;
         }
 
@@ -252,10 +259,10 @@ pub fn GetStructMergedT(context: Context) type {
       }
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
+    pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
       inline for (sorted_dynamic_fields) |f| {
-        f.merged.repointer(&@field(val, f.original.name), @ptrCast(dynamic));
+        f.merged.repointer(&@field(val, f.original.name), dynamic);
       }
     }
   };
@@ -280,7 +287,7 @@ pub fn GetOptionalMergedT(context: Context) type {
         Child.write(&(val.*.?), dynamic);
 
         if (builtin.mode == .Debug) {
-          addDynamicSize(&(val.*.?), &ogptr);
+          addDynamicSize(val, &ogptr);
           std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
         }
       }
@@ -290,7 +297,7 @@ pub fn GetOptionalMergedT(context: Context) type {
       if (val.* != null) Child.addDynamicSize(&(val.*.?), size);
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
+    pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       if (val.* != null) Child.repointer(&(val.*.?), dynamic);
     }
   };
@@ -315,7 +322,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
       if (val.*) |*payload_val| Child.addDynamicSize(payload_val, size);
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
+    pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       if (val.*) |*payload_val| Child.repointer(payload_val, dynamic);
     }
   };
@@ -325,6 +332,12 @@ pub fn GetUnionMergedT(context: Context) type {
   const T = context.Type;
   if (!context.options.recurse) return GetDirectMergedT(context);
   const ui = @typeInfo(T).@"union";
+
+  const ProcessedField = struct {
+    original: std.builtin.Type.UnionField,
+    merged: type,
+  };
+
   const Retval = opaque {
     pub const Underlying = MergedSignature{.T = T, ._align = blk: {
       var min = @intFromEnum(fields[0].merged.Underlying._align);
@@ -334,9 +347,12 @@ pub fn GetUnionMergedT(context: Context) type {
     const TagType = ui.tag_type orelse @compileError("Union '" ++ @typeName(T) ++ "' has no tag type");
     const next_context = context.see(T, @This());
 
-    const ProcessedField = struct {
-      original: std.builtin.Type.UnionField,
-      merged: type,
+    const STATIC = blk: {
+      for (fields) |f| {
+        if (@hasDecl(f.merged, "STATIC") and f.merged.STATIC) continue;
+        break :blk false;
+      }
+      break :blk true;
     };
 
     const fields = blk: {
@@ -367,7 +383,7 @@ pub fn GetUnionMergedT(context: Context) type {
       }
     }
 
-    pub fn repointer(noalias val: *T, noalias dynamic: Dynamic) void {
+    pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
       const active_tag = std.meta.activeTag(val.*);
 
       inline for (fields) |f| {

@@ -13,7 +13,7 @@ pub fn FnReturnType(T: type) type {
 
 /// We dont need the length of the allocations but they are useful for debugging
 /// This is a helper type designed to help with catching errors
-fn Mem(comptime _alignment: std.mem.Alignment) type {
+pub fn Mem(comptime _alignment: std.mem.Alignment) type {
   const keep_len = builtin.mode == .Debug;
   return struct {
     ptr: [*]align(alignment) u8,
@@ -26,33 +26,33 @@ fn Mem(comptime _alignment: std.mem.Alignment) type {
       return .{ .ptr = v.ptr, .len = if (keep_len) v.len else {} };
     }
 
-    pub fn initAssert(v: []u8) @This() {
-      if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(v.ptr), _alignment.toByteUnits()));
-      return .{ .ptr = @alignCast(v.ptr), .len = if (keep_len) v.len else {} };
-    }
+    // pub fn initAssert(v: []u8) @This() {
+    //   if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(v.ptr), _alignment.toByteUnits()));
+    //   return .{ .ptr = @alignCast(v.ptr), .len = if (keep_len) v.len else {} };
+    // }
 
-    pub fn from(self: @This(), index: usize) Mem(.@"1") {
+    pub inline fn from(self: @This(), index: usize) Mem(.@"1") {
       if (builtin.mode == .Debug and index > self.len) {
         std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
       }
       return .{ .ptr = self.ptr + index, .len = if (keep_len) self.len - index else {} };
     }
 
-    pub fn till(self: @This(), index: usize) Mem(_alignment) {
-      if (builtin.mode == .Debug and index > self.len) {
-        std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
-      }
-      return .{ .ptr = self.ptr, .len = if (keep_len) index else {} };
-    }
-
-    pub fn range(self: @This(), start_index: usize, end_index: usize) @This() {
-      return self.from(start_index).till(end_index);
-    }
-
-    pub fn slice(self: @This(), end_index: usize) []align(alignment) u8 {
-      // .till is used for bounds checking in debug mode, otherwise its just a no-op
-      return self.till(end_index).ptr[0..end_index];
-    }
+    // pub fn till(self: @This(), index: usize) Mem(_alignment) {
+    //   if (builtin.mode == .Debug and index > self.len) {
+    //     std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
+    //   }
+    //   return .{ .ptr = self.ptr, .len = if (keep_len) index else {} };
+    // }
+    //
+    // pub fn range(self: @This(), start_index: usize, end_index: usize) @This() {
+    //   return self.from(start_index).till(end_index);
+    // }
+    //
+    // pub fn slice(self: @This(), end_index: usize) []align(alignment) u8 {
+    //   // .till is used for bounds checking in debug mode, otherwise its just a no-op
+    //   return self.till(end_index).ptr[0..end_index];
+    // }
 
     pub fn assertAligned(self: @This(), comptime new_alignment: usize) Mem(.fromByteUnits(new_alignment)) {
       if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(self.ptr), new_alignment));
@@ -109,11 +109,11 @@ pub fn GetContext(Options: type) type {
       return self.merge_fn(self);
     }
 
-    pub fn realign(self: @This(), align_hint: ?std.mem.Alignment) @This() {
-      var retval = self;
-      retval.align_hint = align_hint;
-      return retval;
-    }
+    // pub fn realign(self: @This(), align_hint: ?std.mem.Alignment) @This() {
+    //   var retval = self;
+    //   retval.align_hint = align_hint;
+    //   return retval;
+    // }
 
     pub fn see(self: @This(), new_T: type, Result: type) @This() { // Yes we can do this, Zig is f****ing awesome
       const have_seen = comptime blk: {
@@ -121,7 +121,7 @@ pub fn GetContext(Options: type) type {
         break :blk -1;
       };
 
-      if (have_seen != -1 and !self.options.allow_recursive_rereferencing) {
+      if (have_seen != -1 and !self.options.recurse) {
         @compileError("Recursive type " ++ @typeName(new_T) ++ " is not allowed to be referenced by another type");
       }
 
@@ -140,7 +140,7 @@ pub fn GetContext(Options: type) type {
 
     pub fn T(self: @This(), comptime new_T: type) @This() {
       var retval = self;
-      retval.options.T = new_T;
+      retval.Type = new_T;
       return retval;
     }
   };
@@ -148,8 +148,8 @@ pub fn GetContext(Options: type) type {
 
 pub fn NonConstPointer(T: type, size: std.builtin.Type.Pointer.Size) type {
   var info = @typeInfo(T).pointer;
-  info.pointer.is_const = false;
-  info.pointer.size = size;
-  return @Type(.{.pointer = info.pointer});
+  info.is_const = false;
+  info.size = size;
+  return @Type(.{.pointer = info});
 }
 
