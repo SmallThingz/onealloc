@@ -1,4 +1,5 @@
 const std = @import("std");
+const meta = @import("meta.zig");
 const builtin = @import("builtin");
 pub const SerializationFunctions = @import("serialization_functions.zig");
 const SF = SerializationFunctions;
@@ -19,9 +20,9 @@ pub const MergeOptions = struct {
   deslice: bool = true,
   /// Serialize unknown pointers (C / Many / opaque pointers) as usize. This makes the data non-movable and thus is disabled by default.
   serialize_unknown_pointer_as_usize: bool = false,
-  /// ConstCast constant pointers. (The original pointer is not modified, the value is copied first, then modified)
+  /// Dereference constant pointers. (The original pointer is not modified, the value is copied first, then modified)
   /// Treat pointers to constant when this is false.
-  cast_const_pointers: bool = false,
+  dereference_const_pointers: bool = true,
 };
 
 pub fn ToMergedT(context: SF.Context) type {
@@ -76,13 +77,21 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
       return retval;
     }
 
+    const initial_size = blk: {
+      const static_size: usize = @sizeOf(T);
+      const static_tz = @ctz(static_size);
+      if (static_tz > @intFromEnum(meta.max_align)) break :blk 0;
+      const static_align = @as(std.mem.Alignment, @enumFromInt(static_tz)).toByteUnits();
+      break :blk meta.max_align.toByteUnits() - static_align;
+    };
+
     /// Returns the total size that would be required to store this value
     ///
     /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
     pub fn getSize(value: *const T) usize {
-      var size: usize = @sizeOf(T);
+      var size: usize = initial_size;
       if (!STATIC) MergedT.addDynamicSize(value, &size);
-      return size;
+      return size - initial_size + @sizeOf(T);
     }
 
     /// Returns a mutable pointer to the merged data, allowing modification. The pointer is valid as long as the Wrapper is not de-initialized.
@@ -119,22 +128,26 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
       }
 
       self.get().* = value.*;
-      var dynamic_buffer = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
+      var dynamic_buffer: SF.Dynamic = .init(self.memory[@sizeOf(T)..]);
       MergedT.write(self.get(), &dynamic_buffer);
 
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) - @intFromPtr(self.memory.ptr) == getSize(value));
+        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= @intFromPtr(self.memory[@sizeOf(T)..].ptr) + getSize(value));
       }
     }
 
     /// Updates the internal pointers within the merged data structure. This is necessary
     /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
     pub fn repointer(self: *const @This()) void {
+      if (true) {
+        std.debug.print("initial_size: {b}\n", .{initial_size});
+        @panic("OKKKKK");
+      }
       if (STATIC) return;
       var dynamic = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
       MergedT.repointer(self.get(), &dynamic);
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic.ptr) == @intFromPtr(self.memory.ptr) + getSize(self.get()));
+        std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory[@sizeOf(T)..].ptr) + getSize(self.get()));
       }
     }
 
@@ -170,12 +183,14 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
       return retval;
     }
 
+    const initial_size: comptime_int = meta.max_align.toByteUnits() - 1;
+
     /// Returns the total size that would be required to store this value
     /// Expects there to be no data cycles
     pub fn getSize(value: *const T) usize {
-      var size: usize = 0;
+      var size: usize = initial_size;
       MergedT.addDynamicSize(value, &size);
-      return size;
+      return size - initial_size;
     }
 
     /// Creates a new, independent Wrapper containing a deep copy of the data.
@@ -212,7 +227,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
       MergedT.write(val, &dynamic_buffer);
 
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) - @intFromPtr(self.memory.ptr) == getSize(val));
+        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
       }
     }
 
@@ -222,7 +237,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
       var dynamic = SF.Dynamic.init(self.memory);
       MergedT.repointer(val, &dynamic);
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic.ptr) == @intFromPtr(self.memory.ptr) + getSize(val));
+        std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
       }
     }
 

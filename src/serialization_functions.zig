@@ -37,6 +37,8 @@ pub fn GetPointerMergedT(context: Context) type {
   const T = context.Type;
   const pi = @typeInfo(T).pointer;
   std.debug.assert(pi.size == .one);
+  std.debug.assert(std.mem.Alignment.max(.fromByteUnits(pi.alignment), meta.max_align) == meta.max_align);
+  if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
   const Retval = opaque {
     pub const Underlying = MergedSignature {.T = T, ._align = .fromByteUnits(pi.alignment)};
@@ -47,9 +49,10 @@ pub fn GetPointerMergedT(context: Context) type {
       var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child)).alignForward(pi.alignment).from(0);
+
       const child_static: meta.NonConstPointer(T, .one) = @ptrCast(aligned_dynamic.ptr);
       child_static.* = val.*.*;
-      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child));
       Child.write(child_static, dynamic);
 
       if (builtin.mode == .Debug) {
@@ -63,6 +66,7 @@ pub fn GetPointerMergedT(context: Context) type {
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
       size.* = std.mem.alignForward(usize, size.*, pi.alignment);
       size.* += @sizeOf(pi.child);
+      size.* = std.mem.alignForward(usize, size.*, pi.alignment);
       Child.addDynamicSize(val.*, size);
     }
 
@@ -70,8 +74,9 @@ pub fn GetPointerMergedT(context: Context) type {
       var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      val.* = @ptrCast(aligned_dynamic.ptr);
-      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child));
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child)).alignForward(pi.alignment).from(0);
+
+      val.* = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
       Child.repointer(val.*, dynamic);
 
       if (builtin.mode == .Debug) {
@@ -91,6 +96,8 @@ pub fn GetSliceMergedT(context: Context) type {
   const T = context.Type;
   const pi = @typeInfo(T).pointer;
   std.debug.assert(pi.size == .slice);
+  std.debug.assert(std.mem.Alignment.max(.fromByteUnits(pi.alignment), meta.max_align) == meta.max_align);
+  if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
   const Retval = opaque {
     pub const Underlying = MergedSignature{.T = T, ._align = .fromByteUnits(pi.alignment)};
@@ -102,51 +109,42 @@ pub fn GetSliceMergedT(context: Context) type {
       var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      const child_static: meta.NonConstPointer(T, .slice) = blk: {
-        const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
-        break :blk child_static_ptr[0..val.*.len];
-      };
+      const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
+      const len = val.*.len;
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * len).alignForward(pi.alignment).from(0);
 
       // We can't write the dynamic data before static data as we would need to get the size of dynamic data first. Would is prettie inefficient
-      @memcpy(child_static, val.*);
-      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * child_static.len);
-      if (!SubStatic) {
-        for (0 .. child_static.len) |i| Child.write(&child_static[i], dynamic);
-      }
+      @memcpy(child_static_ptr[0 .. len], val.*);
+      val.*.ptr = child_static_ptr; // TODO: figure out if this is ok
+      if (!SubStatic) { for (0 .. len) |i| Child.write(&val.*[i], dynamic); }
 
       if (builtin.mode == .Debug) {
-        addDynamicSize(&child_static, &ogptr);
+        addDynamicSize(val, &ogptr);
         std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
       }
 
-      val.*.ptr = child_static.ptr; // TODO: figure out if this is ok
     }
 
     pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
       size.* = std.mem.alignForward(usize, size.*, pi.alignment);
       size.* += @sizeOf(pi.child) * val.*.len;
-      if (!SubStatic) {
-        for (0 .. val.*.len) |i| Child.addDynamicSize(&val.*[i], size);
-      }
+      size.* = std.mem.alignForward(usize, size.*, pi.alignment);
+      if (!SubStatic) { for (0 .. val.*.len) |i| Child.addDynamicSize(&val.*[i], size); }
     }
 
     pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
       const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
       const aligned_dynamic = dynamic.alignForward(pi.alignment);
-      const child_static: meta.NonConstPointer(T, .slice) = blk: {
-        const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
-        break :blk child_static_ptr[0..val.*.len];
-      };
+      const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
+      const len = val.*.len;
+      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * len).alignForward(pi.alignment).from(0);
 
-      val.*.ptr = @ptrCast(child_static.ptr); // TODO: figure out if this is ok
-      dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * child_static.len);
-      if (!SubStatic) {
-        for (0 .. val.*.len) |i| Child.repointer(&val.*[i], dynamic);
-      }
+      val.*.ptr = @ptrCast(child_static_ptr); // TODO: figure out if this is ok
+      if (!SubStatic) { for (0 .. val.*.len) |i| Child.repointer(&val.*[i], dynamic); }
 
       if (builtin.mode == .Debug) {
-        addDynamicSize(&child_static, &ogptr);
+        addDynamicSize(val, &ogptr);
         std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
       }
     }
@@ -247,6 +245,7 @@ pub fn GetStructMergedT(context: Context) type {
         i += 1;
       }
 
+      std.debug.assert(i == dynamic_field_count);
       std.mem.sortContext(0, dyn_fields.len, struct {
         fields: []ProcessedField,
 

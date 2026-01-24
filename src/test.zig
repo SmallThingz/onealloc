@@ -1,5 +1,6 @@
 const std = @import("std");
 const root = @import("root.zig");
+const meta = @import("meta.zig");
 const SF = @import("serialization_functions.zig");
 const testing = std.testing;
 const MergeOptions = root.MergeOptions;
@@ -171,12 +172,21 @@ fn testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
 
   wrapped.memory = @ptrCast(@alignCast(buffer[0..total_size]));
   wrapped.setAssert(&value);
-  try expectEqual(&value, wrapped.get());
+  expectEqual(&value, wrapped.get()) catch |e| {
+    std.log.warn("memory: {any}", .{wrapped.memory});
+    std.log.err("original: {any}\nvalue: {any}", .{ value, wrapped.get() });
+    return e;
+  };
 
   var copy = try wrapped.clone(testing.allocator);
   defer copy.deinit(testing.allocator);
 
-  try expectEqual(&value, copy.get());
+  @memset(wrapped.memory, 69);
+  expectEqual(&value, copy.get()) catch |e| {
+    std.log.warn("memory: {any}", .{copy.memory});
+    std.log.err("original: {any}\nvalue: {any}", .{ value, copy.get() });
+    return e;
+  };
 }
 
 fn testMerging(value: anytype) !void {
@@ -724,11 +734,6 @@ test "deeply nested, mutually recursive structures with no data cycles" {
   try testMergingDemerging(root_node, .{});
 }
 
-
-//---
-//Wrapper
-//---
-
 const Wrapper = root.Wrapper;
 
 test "Wrapper init, get, and deinit" {
@@ -835,13 +840,11 @@ test "serialization_functions: opaque with signature" {
 }
 
 test "serialization_functions: alignment sorting in structs" {
-  const S = struct {
+  const val = struct {
     a: []const u8,  // align 1
     b: []const u32, // align 4
     c: []const u64, // align 8
-  };
-  
-  const val = S{
+  } {
     .a = "1",
     .b = &.{1},
     .c = &.{1},
@@ -955,4 +958,144 @@ test "serialization_functions: depointer false" {
   var size: usize = 0;
   MergedT.addDynamicSize(&ptr, &size);
   try testing.expect(size == 0);
+}
+
+test "serialization_functions: nested error unions and optionals" {
+  const Payload = error{Fail}!?[]const u8;
+  const S = struct { p: Payload };
+
+  try testMerging(S{ .p = @as([]const u8, "nest") });
+  try testMerging(S{ .p = @as(?[]const u8, null) });
+  try testMerging(S{ .p = error.Fail });
+}
+
+test "serialization_functions: multi-level pointers (**T)" {
+  const val: u32 = 42;
+  const p1: *const u32 = &val;
+  const p2: *const *const u32 = &p1;
+
+  // recursive GetPointerMergedT
+  try testMergingDemerging(p2, .{ .depointer = true });
+}
+
+test "serialization_functions: union with mixed static and dynamic fields" {
+  const MixedUnion = union(enum) {
+    static: u64,
+    dynamic: []const u8,
+    nested_dynamic: struct { a: []const u32 },
+  };
+
+  try testMerging(MixedUnion{ .static = 12345 });
+  try testMerging(MixedUnion{ .dynamic = "hello union" });
+  try testMerging(MixedUnion{ .nested_dynamic = .{ .a = &.{ 1, 2, 3 } } });
+}
+
+test "serialization_functions: zero-sized array of dynamic types" {
+  const S = struct {
+    items: [0]struct { s: []const u8 },
+  };
+  // Should be treated as STATIC
+  try testMerging(S{ .items = .{} });
+}
+
+test "serialization_functions: alignment stress test" {
+  // A struct that forces padding between dynamic segments
+  const StrictAlign = struct {
+    // align(1)
+    a: []const u8, 
+    // align(16) - forces alignForward to jump significantly
+    b: []const align(16) u32, 
+    c: u8,
+  };
+
+  const val = StrictAlign{
+    .a = "bit",
+    .b = comptime blk: {
+      const retval: [2]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE };
+      break :blk retval[0..];
+    },
+    .c = 1,
+  };
+
+  try testMerging(val);
+}
+
+test "serialization_functions: alignment stress test 2" {
+  // A struct that forces padding between dynamic segments
+  const StrictAlign = struct {
+    // align(1)
+    a: []const u8, 
+    // align(16) - forces alignForward to jump significantly
+    b: []const align(16) u32, 
+    c: u8,
+  };
+
+  const val = StrictAlign{
+    .a = "bit_by_bitset",
+    .b = comptime blk: {
+      const retval: [6]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D, 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D };
+      break :blk retval[0..];
+    },
+    .c = 1,
+  };
+
+  try testMerging(val);
+}
+
+test "meta: NonConstPointer with different sizes" {
+  const T = []const u8;
+  const One = meta.NonConstPointer(T, .one);
+  const Slice = meta.NonConstPointer(T, .slice);
+  
+  try testing.expect(@typeInfo(One).pointer.size == .one);
+  try testing.expect(@typeInfo(Slice).pointer.size == .slice);
+  try testing.expect(@typeInfo(One).pointer.is_const == false);
+}
+
+test "root: Wrapper.set with exact same size (remap path)" {
+  const S = struct { a: []const u8 };
+  var wrapped = try Wrapper(S, .{}).init(&.{ .a = "old" }, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  try wrapped.set(testing.allocator, &.{ .a = "new" });
+  try testing.expectEqualSlices(u8, "new", wrapped.get().a);
+}
+
+test "serialization_functions: vector types" {
+  const v: @Vector(4, f32) = .{ 1.1, 2.2, 3.3, 4.4 };
+  try testMerging(v);
+}
+
+test "serialization_functions: recursive structs with multiple paths" {
+  const Node = struct {
+    child_a: ?*const @This(),
+    child_b: ?*const @This(),
+    data: u32,
+  };
+
+  const leaf = Node{ .child_a = null, .child_b = null, .data = 100 };
+  const root_node = Node{
+    .child_a = &leaf,
+    .child_b = &leaf,
+    .data = 200,
+  };
+
+  try testMerging(root_node);
+}
+
+test "serialization_functions: context reop and realign" {
+  const options = MergeOptions{ .deslice = false };
+  const ctx = Context {
+    .Type = u32,
+    .align_hint = null,
+    .seen_types = &.{},
+    .result_types = &.{},
+    .options = options,
+    .seen_recursive = -1,
+    .merge_fn = ToMergedT,
+  };
+
+  const ctx_new = ctx.reop(.{ .deslice = true });
+  try testing.expect(ctx.options.deslice == false);
+  try testing.expect(ctx_new.options.deslice == true);
 }

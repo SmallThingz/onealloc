@@ -3,6 +3,13 @@ const builtin = @import("builtin");
 const root = @import("root.zig");
 const testing = std.testing;
 
+pub const max_align = blk: {
+  const fields = @typeInfo(std.mem.Alignment).@"enum".fields;
+  var max: std.mem.Alignment = .@"1";
+  for (fields) |f| max = std.mem.Alignment.max(max, @enumFromInt(f.value));
+  break :blk max;
+};
+
 /// Given a function type, get the return type
 pub fn FnReturnType(T: type) type {
   return switch (@typeInfo(T)) {
@@ -26,33 +33,12 @@ pub fn Mem(comptime _alignment: std.mem.Alignment) type {
       return .{ .ptr = v.ptr, .len = if (keep_len) v.len else {} };
     }
 
-    // pub fn initAssert(v: []u8) @This() {
-    //   if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(v.ptr), _alignment.toByteUnits()));
-    //   return .{ .ptr = @alignCast(v.ptr), .len = if (keep_len) v.len else {} };
-    // }
-
     pub inline fn from(self: @This(), index: usize) Mem(.@"1") {
       if (builtin.mode == .Debug and index > self.len) {
         std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
       }
       return .{ .ptr = self.ptr + index, .len = if (keep_len) self.len - index else {} };
     }
-
-    // pub fn till(self: @This(), index: usize) Mem(_alignment) {
-    //   if (builtin.mode == .Debug and index > self.len) {
-    //     std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
-    //   }
-    //   return .{ .ptr = self.ptr, .len = if (keep_len) index else {} };
-    // }
-    //
-    // pub fn range(self: @This(), start_index: usize, end_index: usize) @This() {
-    //   return self.from(start_index).till(end_index);
-    // }
-    //
-    // pub fn slice(self: @This(), end_index: usize) []align(alignment) u8 {
-    //   // .till is used for bounds checking in debug mode, otherwise its just a no-op
-    //   return self.till(end_index).ptr[0..end_index];
-    // }
 
     pub fn assertAligned(self: @This(), comptime new_alignment: usize) Mem(.fromByteUnits(new_alignment)) {
       if (builtin.mode == .Debug) std.debug.assert(std.mem.isAligned(@intFromPtr(self.ptr), new_alignment));
@@ -107,12 +93,6 @@ pub fn GetContext(Options: type) type {
     pub fn merge(self: @This()) type {
       return self.merge_fn(self);
     }
-
-    // pub fn realign(self: @This(), align_hint: ?std.mem.Alignment) @This() {
-    //   var retval = self;
-    //   retval.align_hint = align_hint;
-    //   return retval;
-    // }
 
     pub fn see(self: @This(), new_T: type, Result: type) @This() { // Yes we can do this, Zig is f****ing awesome
       const have_seen = comptime blk: {
