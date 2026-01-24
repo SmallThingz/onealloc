@@ -1,11 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 pub const SerializationFunctions = @import("serialization_functions.zig");
 const SF = SerializationFunctions;
+const Context = SF.Context;
 
 /// Options to control how merging of a type is performed
 pub const MergeOptions = struct {
-  /// The type that is to be merged
-  T: type,
   /// Recurse into structs and unions
   recurse: bool = true,
   /// Whether to dereference pointers or use them by value
@@ -24,7 +24,7 @@ pub const MergeOptions = struct {
 };
 
 pub fn ToMergedT(context: SF.Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   @setEvalBranchQuota(1000_000);
   return switch (@typeInfo(T)) {
     .type, .noreturn, .comptime_int, .comptime_float, .undefined, .@"fn", .frame, .@"anyframe", .enum_literal => {
@@ -39,6 +39,9 @@ pub fn ToMergedT(context: SF.Context) type {
         .@"opaque" => if (@hasDecl(pi.child, "Underlying") and @TypeOf(pi.child.Underlying) == SF.MergedSignature) pi.child else {
           @compileError("A non-mergeable opaque " ++ @typeName(pi.child) ++ " was provided to `ToMergedT`\n");
         },
+        .anyopaque => if (context.options.serialize_unknown_pointer_as_usize) SF.GetDirectMergedT(context) else {
+          @compileError("Cannot serialize an anyopaque pointer. Set options.serialize_unknown_pointer_as_usize to true to serialize it as an int instead");
+        },
         else => SF.GetPointerMergedT(context),
       },
       .slice => SF.GetSliceMergedT(context),
@@ -52,5 +55,91 @@ pub fn ToMergedT(context: SF.Context) type {
       @compileError("A non-mergeable opaque " ++ @typeName(T) ++ " was provided to `ToMergedT`\n");
     },
   };
+}
+
+/// A generic wrapper that manages the memory for a merged object.
+pub fn WrapConverted(_T: type, MergedT: type) type {
+  std.debug.assert(_T == MergedT.Underlying.T);
+  return struct {
+    pub const Underlying = MergedT;
+    memory: []align(@alignOf(T)) u8,
+
+    pub const T = _T;
+    pub const STATIC = @hasDecl(MergedT, "STATIC") and MergedT.STATIC;
+
+    /// Allocates memory and merges the initial value into a self-managed buffer.
+    /// The Wrapper instance owns the memory and must be de-initialized with `deinit`.
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn init(noalias val: *const T, noalias gpa: std.mem.Allocator) @This() {
+      const size = getSize(val);
+      const memory = try gpa.alignedAlloc(u8, @alignOf(T), size);
+      var retval: @This() = .{ .memory = memory };
+      retval.setAssert(val);
+      return retval;
+    }
+
+    /// Returns the total size that would be required to store this value
+    /// Expects there to be no data cycles
+    pub fn getSize(value: *const T) usize {
+      var size = @sizeOf(T);
+      if (!STATIC) MergedT.addDynamicSize(value, &size);
+      return size;
+    }
+
+    /// Returns a mutable pointer to the merged data, allowing modification.
+    /// The pointer is valid as long as the Wrapper is not de-initialized.
+    pub fn get(self: *const @This()) *T {
+      return @ptrCast(self.memory.ptr);
+    }
+
+    /// Creates a new, independent Wrapper containing a deep copy of the data.
+    pub fn clone(noalias self: *const @This(), noalias gpa: std.mem.Allocator) !@This() {
+      // We could return try @This().init(allocator, self.get());
+      // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
+      const retval: @This() = try .{ .memory = gpa.alignedAlloc(u8, @alignOf(T), self.memory.len)};
+      @memcpy(retval.memory, self.memory);
+      retval.repointer();
+      return retval;
+    }
+
+    /// Set a new value into the wrapper. Invalidates any references to the old value
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn set(self: *@This(), noalias gpa: std.mem.Allocator, value: *const T) !void {
+      self.memory = try gpa.realloc(self.memory, getSize(value));
+      self.setAssert(value);
+    }
+
+    /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
+    /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
+    pub fn setAssert(self: *@This(), value: *const T) void {
+      if (builtin.mode == .Debug) { // debug.assert alone may not be optimized out
+        std.debug.assert(getSize(value) <= self.memory.len);
+      }
+
+      self.get().* = value;
+      var dynamic_buffer = SF.Dynamic.init(self.memory[MergedT.Signature.static_size..]);
+      MergedT.write(self.get(), &dynamic_buffer);
+
+      if (builtin.mode == .Debug) {
+        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) - @intFromPtr(self.memory.ptr) == getSize(value));
+      }
+    }
+
+    /// Updates the internal pointers within the merged data structure. This is necessary
+    /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+    pub fn repointer(self: *@This()) void {
+      if (STATIC) return;
+      MergedT.repointer(self.get(), SF.Dynamic.init(self.memory[MergedT.Signature.static_size..]));
+    }
+
+    /// Frees the memory owned by the Wrapper.
+    pub fn deinit(self: *const @This(), gpa: std.mem.Allocator) void {
+      gpa.free(self.memory);
+    }
+  };
+}
+
+pub fn Wrapper(T: type, options: MergeOptions) type {
+  return WrapConverted(T, Context.init(T, options, ToMergedT));
 }
 

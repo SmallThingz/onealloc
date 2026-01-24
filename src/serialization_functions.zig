@@ -14,11 +14,11 @@ pub const MergedSignature = struct {
   T: type,
 };
 
-const Dynamic = Mem(.@"1");
+pub const Dynamic = Mem(.@"1");
 
 /// A no-op opaque type that is used for static types (types with no dynamic / allocated data)
 pub fn GetDirectMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   return opaque {
     pub const Underlying = MergedSignature {.T = T, .D = Mem(.@"1")};
     pub const STATIC = true; // Allow others to see if their child is static. This is required in slices
@@ -32,7 +32,7 @@ pub fn GetDirectMergedT(context: Context) type {
 pub fn GetPointerMergedT(context: Context) type {
   if (!context.options.depointer) return GetDirectMergedT(context);
 
-  const T = context.options.T;
+  const T = context.Type;
   const pi = @typeInfo(T).pointer;
   std.debug.assert(pi.size == .one);
 
@@ -76,7 +76,7 @@ pub fn GetPointerMergedT(context: Context) type {
 pub fn GetSliceMergedT(context: Context) type {
   if (!context.options.deslice) return GetDirectMergedT(context);
 
-  const T = context.options.T;
+  const T = context.Type;
   const pi = @typeInfo(T).pointer;
   std.debug.assert(pi.size == .slice);
 
@@ -130,7 +130,7 @@ pub fn GetSliceMergedT(context: Context) type {
 }
 
 pub fn GetArrayMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   @setEvalBranchQuota(1000_000);
   const ai = @typeInfo(T).array;
   // No need to .see(T) here because array children are not indirected
@@ -161,7 +161,7 @@ pub fn GetArrayMergedT(context: Context) type {
 }
 
 pub fn GetStructMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   @setEvalBranchQuota(1000_000);
   if (!context.options.recurse) return GetDirectMergedT(context);
 
@@ -264,7 +264,7 @@ pub fn GetStructMergedT(context: Context) type {
 }
 
 pub fn GetOptionalMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   const oi = @typeInfo(T).optional;
   const Child = context.T(oi.child).merge();
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
@@ -295,7 +295,7 @@ pub fn GetOptionalMergedT(context: Context) type {
 }
 
 pub fn GetErrorUnionMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   const ei = @typeInfo(T).error_union;
   const Payload = ei.payload;
 
@@ -320,7 +320,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
 }
 
 pub fn GetUnionMergedT(context: Context) type {
-  const T = context.options.T;
+  const T = context.Type;
   if (!context.options.recurse) return GetDirectMergedT(context);
   const ui = @typeInfo(T).@"union";
   const Retval = opaque {

@@ -77,6 +77,7 @@ fn Mem(comptime _alignment: std.mem.Alignment) type {
 
 pub fn GetContext(Options: type) type {
   return struct {
+    Type: type,
     /// What should be the alignment of the type being merged
     align_hint: ?std.mem.Alignment,
     /// The types that have been seen so far
@@ -90,8 +91,9 @@ pub fn GetContext(Options: type) type {
     /// The function that will be used to merge a type
     merge_fn: fn (context: @This()) type,
 
-    pub fn init(options: Options, merge_fn: fn (context: @This()) type) type {
-      const self = @This(){
+    pub fn init(Type: type, options: Options, merge_fn: fn (context: @This()) type) type {
+      const self = @This() {
+        .Type = Type,
         .align_hint = null,
         .seen_types = &.{},
         .result_types = &.{},
@@ -147,6 +149,7 @@ pub fn GetContext(Options: type) type {
 pub fn NonConstPointer(T: type, size: std.builtin.Type.Pointer.Size) type {
   var info = @typeInfo(T).pointer;
   info.pointer.is_const = false;
+  info.pointer.size = size;
   return @Type(.{.pointer = info.pointer});
 }
 
