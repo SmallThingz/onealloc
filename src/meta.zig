@@ -63,14 +63,12 @@ pub fn Mem(comptime _alignment: std.mem.Alignment) type {
 pub fn GetContext(Options: type) type {
   return struct {
     Type: type,
-    /// What should be the alignment of the type being merged
-    align_hint: ?std.mem.Alignment,
     /// The types that have been seen so far
-    seen_types: []const type,
+    seen_types: []const type = &.{},
     /// The types that have been merged so far (each corresponding to a seen type)
-    result_types: []const type,
+    result_types: []const type = &.{},
     /// If we have seen a type passed to .see before, this will give it's index, otherwise -1
-    seen_recursive: comptime_int,
+    seen_recursive: comptime_int = -1,
     /// The options used by the merging function
     options: Options,
     /// The function that will be used to merge a type
@@ -79,11 +77,7 @@ pub fn GetContext(Options: type) type {
     pub fn init(Type: type, options: Options, merge_fn: fn (context: @This()) type) type {
       const self = @This() {
         .Type = Type,
-        .align_hint = null,
-        .seen_types = &.{},
-        .result_types = &.{},
         .options = options,
-        .seen_recursive = -1,
         .merge_fn = merge_fn,
       };
 

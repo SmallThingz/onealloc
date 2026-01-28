@@ -891,10 +891,6 @@ test "meta: Context helpers" {
   const options2 = MergeOptions{ .deslice = true };
   const ctx = Context{
     .Type = u32,
-    .align_hint = null,
-    .seen_types = &.{},
-    .result_types = &.{},
-    .seen_recursive = -1,
     .options = options1,
     .merge_fn = ToMergedT,
   };
@@ -1092,11 +1088,7 @@ test "serialization_functions: context reop and realign" {
   const options = MergeOptions{ .deslice = false };
   const ctx = Context {
     .Type = u32,
-    .align_hint = null,
-    .seen_types = &.{},
-    .result_types = &.{},
     .options = options,
-    .seen_recursive = -1,
     .merge_fn = ToMergedT,
   };
 

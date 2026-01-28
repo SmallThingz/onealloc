@@ -41,7 +41,7 @@ pub fn GetPointerMergedT(context: Context) type {
   if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature {.T = T, ._align = .fromByteUnits(pi.alignment)};
+    pub const Underlying = MergedSignature {.T = T, ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(pi.alignment) else std.mem.Alignment.max(.fromByteUnits(pi.alignment), Child.Underlying._align)};
     const Child = next_context.T(pi.child).merge();
     const next_context = context.see(T, @This());
 
@@ -100,7 +100,7 @@ pub fn GetSliceMergedT(context: Context) type {
   if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = .fromByteUnits(pi.alignment)};
+    pub const Underlying = MergedSignature{.T = T, ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(pi.alignment) else  std.mem.Alignment.max(.fromByteUnits(pi.alignment), Child.Underlying._align)};
     const Child = next_context.T(pi.child).merge();
     const SubStatic = @hasDecl(Child, "STATIC") and Child.STATIC;
     const next_context = context.see(T, @This());
@@ -158,7 +158,6 @@ pub fn GetArrayMergedT(context: Context) type {
   const T = context.Type;
   @setEvalBranchQuota(1000_000);
   const ai = @typeInfo(T).array;
-  // No need to .see(T) here because array children are not indirected
   const Child = context.T(ai.child).merge();
 
   // If the child has no dynamic data, the entire array is static.
@@ -166,7 +165,7 @@ pub fn GetArrayMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
+    pub const Underlying = MergedSignature{.T = T, ._align = if (context.see(ai.child, void).seen_recursive >= 0) .@"1" else Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       @setEvalBranchQuota(1000_000);
@@ -208,9 +207,12 @@ pub fn GetStructMergedT(context: Context) type {
   };
 
   const Retval = opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = if (STATIC) .@"1" else sorted_dynamic_fields[0].merged.Underlying._align};
+    pub const Underlying = MergedSignature{.T = T, ._align = blk: {
+      var max: std.mem.Alignment = if (context.see(fields[0].original.type, void).seen_recursive >= 0) .@"1" else fields[0].merged.Underlying._align;
+      for (fields[1..]) |f| max = max.max(if (context.see(f.original.type, void).seen_recursive >= 0) .@"1" else f.merged.Underlying._align);
+      break :blk max;
+    }};
     const STATIC = dynamic_field_count == 0;
-    const next_context = context.see(T, @This());
 
     const fields = blk: {
       @setEvalBranchQuota(1000_000);
@@ -218,7 +220,7 @@ pub fn GetStructMergedT(context: Context) type {
       for (si.fields, 0..) |f, i| {
         pfields[i] = .{
           .original = f,
-          .merged = next_context.T(f.type).merge(),
+          .merged = context.T(f.type).merge(),
         };
       }
       break :blk pfields;
@@ -302,7 +304,6 @@ pub fn GetStructMergedT(context: Context) type {
   };
 
   if (Retval.STATIC) return GetDirectMergedT(context);
-  if (Retval.next_context.seen_recursive >= 0) return context.result_types[Retval.next_context.seen_recursive];
   return Retval;
 }
 
@@ -313,7 +314,7 @@ pub fn GetOptionalMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
+    pub const Underlying = MergedSignature{.T = T, ._align = if (context.see(oi.child, void).seen_recursive >= 0) .@"1" else Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       if (val.* != null) {
@@ -354,7 +355,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
   if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
   return opaque {
-    pub const Underlying = MergedSignature{.T = T, ._align = Child.Underlying._align};
+    pub const Underlying = MergedSignature{.T = T, ._align = if (context.see(Payload, void).seen_recursive >= 0) .@"1" else Child.Underlying._align};
 
     pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
       var ogptr = @intFromPtr(dynamic.ptr);
@@ -393,12 +394,11 @@ pub fn GetUnionMergedT(context: Context) type {
 
   const Retval = opaque {
     pub const Underlying = MergedSignature{.T = T, ._align = blk: {
-      var max = @intFromEnum(fields[0].merged.Underlying._align);
-      for (fields[1..]) |f| max = @max(max, @intFromEnum(f.merged.Underlying._align));
-      break :blk @enumFromInt(max);
+      var max: std.mem.Alignment = if (context.see(fields[0].original.type, void).seen_recursive >= 0) .@"1" else fields[0].merged.Underlying._align;
+      for (fields[1..]) |f| max = max.max(if (context.see(f.original.type, void).seen_recursive >= 0) .@"1" else f.merged.Underlying._align);
+      break :blk max;
     }};
     const TagType = ui.tag_type orelse @compileError("Union '" ++ @typeName(T) ++ "' has no tag type");
-    const next_context = context.see(T, @This());
 
     const STATIC = blk: {
       for (fields) |f| {
@@ -412,7 +412,7 @@ pub fn GetUnionMergedT(context: Context) type {
       var pfields: [ui.fields.len]ProcessedField = undefined;
       for (ui.fields, 0..) |f, i| pfields[i] = .{
         .original = f,
-        .merged = next_context.T(f.type).merge(),
+        .merged = context.T(f.type).merge(),
       };
       break :blk pfields;
     };
@@ -470,7 +470,6 @@ pub fn GetUnionMergedT(context: Context) type {
   };
 
   if (Retval.STATIC) return GetDirectMergedT(context);
-  if (Retval.next_context.seen_recursive >= 0) return context.result_types[Retval.next_context.seen_recursive];
   if (ui.tag_type == null) @compileError("Cannot merge untagged union with dynamic data: " ++ @typeName(T));
   return Retval;
 }
