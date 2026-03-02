@@ -35,7 +35,7 @@ pub fn ToMergedT(context: SF.Context) type {
     .void, .bool, .int, .float, .vector, .error_set, .null, .@"enum" => SF.GetDirectMergedT(context),
     .pointer => |pi| switch (pi.size) {
       .many, .c => if (context.options.serialize_unknown_pointer_as_usize) SF.GetDirectMergedT(context) else {
-        @compileError(@tagName(pi.size) ++ " pointer cannot be serialized for type " ++ @typeName(T) ++ ", consider setting serialize_many_pointer_as_usize to true\n");
+        @compileError(@tagName(pi.size) ++ " pointer cannot be serialized for type " ++ @typeName(T) ++ ", consider setting serialize_unknown_pointer_as_usize to true\n");
       },
       .one => switch (@typeInfo(pi.child)) {
         .@"opaque" => if (@hasDecl(pi.child, "Underlying") and @TypeOf(pi.child.Underlying) == SF.MergedSignature) pi.child else {
@@ -106,8 +106,9 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
     pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *const T) !void {
       const new_len = getSize(value);
       self.memory = gpa.remap(self.memory, new_len) orelse blk: {
+        const new = try gpa.alignedAlloc(u8, alignment, new_len);
         gpa.free(self.memory);
-        break :blk try gpa.alignedAlloc(u8, alignment, new_len);
+        break :blk new;
       };
       self.setAssert(value);
     }
@@ -124,7 +125,9 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
       MergedT.write(self.get(), &dynamic_buffer);
 
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= @intFromPtr(self.memory[@sizeOf(T)..].ptr) + getSize(value));
+        const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
+        const dynamic_limit = dynamic_start + (getSize(value) - @sizeOf(T));
+        std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= dynamic_limit);
       }
     }
 
@@ -135,7 +138,9 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
       var dynamic = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
       MergedT.repointer(self.get(), &dynamic);
       if (builtin.mode == .Debug) {
-        std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory[@sizeOf(T)..].ptr) + getSize(self.get()));
+        const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
+        const dynamic_limit = dynamic_start + (getSize(self.get()) - @sizeOf(T));
+        std.debug.assert(@intFromPtr(dynamic.ptr) <= dynamic_limit);
       }
     }
 
@@ -196,8 +201,9 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
     pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *T) !void {
       const new_len = getSize(value);
       self.memory = gpa.remap(self.memory, new_len) orelse blk: {
+        const new = try gpa.alignedAlloc(u8, alignment, new_len);
         gpa.free(self.memory);
-        break :blk try gpa.alignedAlloc(u8, alignment, new_len);
+        break :blk new;
       };
       return self.setAssert(value);
     }

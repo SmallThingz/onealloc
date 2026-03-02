@@ -49,7 +49,7 @@ pub fn Mem(comptime _alignment: std.mem.Alignment) type {
       const aligned_ptr = std.mem.alignForward(usize, @intFromPtr(self.ptr), new_alignment);
       return .{
         .ptr = @ptrFromInt(aligned_ptr),
-        .len = self.len - (aligned_ptr - @intFromPtr(self.ptr)) // Underflow => user error
+        .len = if (keep_len) self.len - (aligned_ptr - @intFromPtr(self.ptr)) else {} // Underflow => user error
       };
     }
 
