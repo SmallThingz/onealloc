@@ -170,16 +170,8 @@ fn testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
   var wrapped: Wrapped = undefined;
 
   const total_size: usize = Wrapped.getSize(&value);
-
-  const static_size = @sizeOf(T);
-  const alignment: comptime_int = comptime Wrapped.alignment.toByteUnits();
-  var buffer: [static_size + 4096]u8 align(alignment) = undefined;
-  if (total_size > buffer.len) {
-    std.log.err("buffer too small for test. need {d}, have {d}", .{ total_size, buffer.len });
-    return error.NoSpaceLeft;
-  }
-
-  wrapped.memory = @ptrCast(@alignCast(buffer[0..total_size]));
+  wrapped.memory = try testing.allocator.alignedAlloc(u8, Wrapped.alignment, total_size);
+  defer testing.allocator.free(wrapped.memory);
   wrapped.setAssert(&value);
   expectEqual(&value, wrapped.get()) catch |e| {
     std.log.warn("memory: {any}", .{wrapped.memory});
@@ -1280,4 +1272,442 @@ test "recursive stress: repeated set across acyclic recursive payloads" {
   try expectEqual(&b1, wrapped.get());
   try wrapped.set(testing.allocator, &a1);
   try expectEqual(&a1, wrapped.get());
+}
+
+test "massive messy type stress: quadruple-recursive tagged-union pointer slice kitchen sink" {
+  const Err = error{ Missing, Corrupt, Exploded };
+
+  const Namespace = struct {
+    const Blob = struct {
+      id: u32,
+      bytes: []const u8,
+      next: ?*const @This(),
+      maybe_err: Err![]const u8,
+    };
+
+    const NodeA = struct {
+      id: u32,
+      label: []const u8,
+      b: ?*const NodeB,
+      c: ?*const NodeC,
+      d: ?*const NodeD,
+      inline_payload: Payload,
+      refs: []const ?*const NodeA,
+      flags: packed struct {
+        active: bool,
+        archived: bool,
+        mode: u6,
+      },
+    };
+
+    const NodeB = struct {
+      weight: f64,
+      note: []const u8,
+      parent_like: ?*const NodeA,
+      next: ?*const @This(),
+      c_items: []const NodeC,
+      state: State,
+    };
+
+    const NodeC = union(enum) {
+      none: void,
+      text: []const u8,
+      blob: *const Blob,
+      point_to_d: *const NodeD,
+      tuple: struct {
+        a: ?*const NodeA,
+        b: ?*const NodeB,
+        msg: []const u8,
+      },
+      more: []const Payload,
+    };
+
+    const NodeD = struct {
+      rank: i16,
+      name: []const u8,
+      link_b: ?*const NodeB,
+      next: ?*const @This(),
+      states: []const State,
+      alt: Payload,
+      maybe_payload: ?Payload,
+    };
+
+    const State = union(enum) {
+      idle: void,
+      text: []const u8,
+      counters: [3]u32,
+      refs: struct {
+        a: ?*const NodeA,
+        b: ?*const NodeB,
+        d: ?*const NodeD,
+      },
+      nested_error: Err![]const u8,
+      node_c: NodeC,
+    };
+
+    const Payload = union(enum) {
+      small: u8,
+      name: []const u8,
+      blob_chain: []const *const Blob,
+      a_ref: ?*const NodeA,
+      b_ref: ?*const NodeB,
+      c_val: NodeC,
+      d_ref: ?*const NodeD,
+      state: State,
+      opt_state: ?State,
+      history: []const State,
+      deep: struct {
+        lines: []const []const u8,
+        maybe_err: Err!?[]const u8,
+        vector: @Vector(8, i16),
+      },
+    };
+
+    const Mega = struct {
+      title: []const u8,
+      version: u16,
+      root_a: *const NodeA,
+      root_b: *const NodeB,
+      root_c: NodeC,
+      root_d: *const NodeD,
+      blobs: []const Blob,
+      payloads: []const Payload,
+      states: []const State,
+      nested_strings: []const []const []const u8,
+      matrix: [3]@Vector(4, u16),
+      toggles: [5]bool,
+      maybe_payload: ?Payload,
+      err_payload: Err!Payload,
+      optional_root: ?*const NodeD,
+      fanout: []const ?*const NodeA,
+      sentinel: void,
+    };
+  };
+
+  const Blob = Namespace.Blob;
+  const NodeA = Namespace.NodeA;
+  const NodeB = Namespace.NodeB;
+  const NodeC = Namespace.NodeC;
+  const NodeD = Namespace.NodeD;
+  const State = Namespace.State;
+  const Payload = Namespace.Payload;
+  const Mega = Namespace.Mega;
+  const MegaWrapper = Wrapper(Mega, .{});
+
+  const blob5 = Blob{
+    .id = 5,
+    .bytes = "blob-5-tail",
+    .next = null,
+    .maybe_err = "blob5-ok",
+  };
+  const blob4 = Blob{
+    .id = 4,
+    .bytes = "blob-4",
+    .next = &blob5,
+    .maybe_err = Err.Corrupt,
+  };
+  const blob3 = Blob{
+    .id = 3,
+    .bytes = "",
+    .next = &blob4,
+    .maybe_err = "blob3-ok",
+  };
+  const blob2 = Blob{
+    .id = 2,
+    .bytes = "blob-2",
+    .next = &blob3,
+    .maybe_err = "blob2-ok",
+  };
+  const blob1 = Blob{
+    .id = 1,
+    .bytes = "blob-1-head",
+    .next = &blob2,
+    .maybe_err = "blob1-ok",
+  };
+
+  const d4 = NodeD{
+    .rank = 40,
+    .name = "d4",
+    .link_b = null,
+    .next = null,
+    .states = &.{
+      State{ .idle = {} },
+      State{ .nested_error = Err.Exploded },
+    },
+    .alt = Payload{ .small = 9 },
+    .maybe_payload = null,
+  };
+  const c4 = NodeC{ .blob = &blob4 };
+  const b4 = NodeB{
+    .weight = 4.4,
+    .note = "b4",
+    .parent_like = null,
+    .next = null,
+    .c_items = &.{
+      c4,
+      NodeC{ .text = "b4-c-text" },
+    },
+    .state = State{ .idle = {} },
+  };
+  const a4 = NodeA{
+    .id = 4,
+    .label = "a4",
+    .b = &b4,
+    .c = &c4,
+    .d = &d4,
+    .inline_payload = Payload{ .name = "payload-a4" },
+    .refs = &.{null},
+    .flags = .{ .active = true, .archived = false, .mode = 7 },
+  };
+
+  const p3_a = Payload{
+    .deep = .{
+      .lines = &.{ "p3-a-line-1", "p3-a-line-2" },
+      .maybe_err = @as(?[]const u8, null),
+      .vector = .{ 1, 2, 3, 4, 5, 6, 7, 8 },
+    },
+  };
+  const p3_b = Payload{ .d_ref = &d4 };
+  const c3 = NodeC{ .more = &.{ p3_a, p3_b } };
+  const d3 = NodeD{
+    .rank = 30,
+    .name = "d3",
+    .link_b = &b4,
+    .next = &d4,
+    .states = &.{
+      State{ .counters = .{ 3, 30, 300 } },
+      State{ .refs = .{ .a = &a4, .b = &b4, .d = &d4 } },
+      State{ .nested_error = "d3-state-ok" },
+    },
+    .alt = Payload{ .a_ref = &a4 },
+    .maybe_payload = Payload{ .opt_state = State{ .text = "d3-opt-state" } },
+  };
+  const b3 = NodeB{
+    .weight = 3.3,
+    .note = "b3",
+    .parent_like = &a4,
+    .next = &b4,
+    .c_items = &.{
+      c3,
+      NodeC{ .point_to_d = &d3 },
+    },
+    .state = State{ .node_c = NodeC{ .text = "b3-state-c" } },
+  };
+  const a3 = NodeA{
+    .id = 3,
+    .label = "a3",
+    .b = &b3,
+    .c = &c3,
+    .d = &d3,
+    .inline_payload = Payload{ .history = &.{ State{ .text = "a3-h1" }, State{ .text = "a3-h2" } } },
+    .refs = &.{ &a4, null },
+    .flags = .{ .active = true, .archived = false, .mode = 11 },
+  };
+
+  const p2_a = Payload{ .blob_chain = &.{ &blob2, &blob4, &blob5 } };
+  const p2_b = Payload{ .state = State{ .nested_error = "p2-b-ok" } };
+  const c2 = NodeC{
+    .tuple = .{
+      .a = &a3,
+      .b = &b3,
+      .msg = "c2-tuple",
+    },
+  };
+  const d2 = NodeD{
+    .rank = 20,
+    .name = "d2",
+    .link_b = &b3,
+    .next = &d3,
+    .states = &.{
+      State{ .text = "d2-s0" },
+      State{ .refs = .{ .a = &a3, .b = &b3, .d = &d3 } },
+      State{ .node_c = c3 },
+    },
+    .alt = Payload{ .c_val = c2 },
+    .maybe_payload = Payload{ .history = &.{ State{ .idle = {} }, State{ .text = "d2-h1" } } },
+  };
+  const b2 = NodeB{
+    .weight = 2.2,
+    .note = "b2",
+    .parent_like = &a3,
+    .next = &b3,
+    .c_items = &.{
+      c2,
+      NodeC{ .more = &.{ p2_a, p2_b } },
+    },
+    .state = State{ .counters = .{ 2, 20, 200 } },
+  };
+  const a2 = NodeA{
+    .id = 2,
+    .label = "a2",
+    .b = &b2,
+    .c = &c2,
+    .d = &d2,
+    .inline_payload = Payload{ .b_ref = &b3 },
+    .refs = &.{ &a3, &a4, null },
+    .flags = .{ .active = true, .archived = false, .mode = 19 },
+  };
+
+  const p1_a = Payload{ .a_ref = &a2 };
+  const p1_b = Payload{
+    .deep = .{
+      .lines = &.{ "p1-deep-0", "p1-deep-1", "p1-deep-2" },
+      .maybe_err = "p1-deep-ok",
+      .vector = .{ -1, -2, -3, -4, 4, 3, 2, 1 },
+    },
+  };
+  const c1 = NodeC{ .more = &.{ p1_a, p1_b, Payload{ .d_ref = &d2 } } };
+  const d1 = NodeD{
+    .rank = 10,
+    .name = "d1",
+    .link_b = &b2,
+    .next = &d2,
+    .states = &.{
+      State{ .text = "d1-s0" },
+      State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
+      State{ .nested_error = Err.Missing },
+      State{ .node_c = c2 },
+    },
+    .alt = Payload{ .state = State{ .node_c = c3 } },
+    .maybe_payload = Payload{ .opt_state = null },
+  };
+  const b1 = NodeB{
+    .weight = 1.1,
+    .note = "b1",
+    .parent_like = &a2,
+    .next = &b2,
+    .c_items = &.{
+      c1,
+      NodeC{ .point_to_d = &d1 },
+      NodeC{ .blob = &blob1 },
+    },
+    .state = State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
+  };
+  const a1 = NodeA{
+    .id = 1,
+    .label = "a1-root",
+    .b = &b1,
+    .c = &c1,
+    .d = &d1,
+    .inline_payload = Payload{ .history = &.{ State{ .text = "a1-h0" }, State{ .text = "a1-h1" }, State{ .idle = {} } } },
+    .refs = &.{ &a2, &a3, &a4, null },
+    .flags = .{ .active = true, .archived = false, .mode = 27 },
+  };
+
+  const mega1 = Mega{
+    .title = "mega-1",
+    .version = 1,
+    .root_a = &a1,
+    .root_b = &b1,
+    .root_c = NodeC{ .point_to_d = &d1 },
+    .root_d = &d1,
+    .blobs = &.{ blob1, blob2, blob3, blob4, blob5 },
+    .payloads = &.{
+      Payload{ .small = 42 },
+      Payload{ .name = "payload-root-1" },
+      Payload{ .blob_chain = &.{ &blob1, &blob2, &blob3 } },
+      Payload{ .c_val = c1 },
+      Payload{ .state = State{ .node_c = c2 } },
+      Payload{ .a_ref = &a3 },
+      Payload{ .d_ref = &d4 },
+    },
+    .states = &.{
+      State{ .idle = {} },
+      State{ .text = "state-1" },
+      State{ .counters = .{ 10, 20, 30 } },
+      State{ .node_c = c1 },
+      State{ .nested_error = "state-ok" },
+    },
+    .nested_strings = &.{
+      &.{ "n1-a", "n1-b", "n1-c" },
+      &.{"n2-a"},
+      &.{},
+      &.{ "n4-a", "n4-b" },
+    },
+    .matrix = .{
+      .{ 1, 2, 3, 4 },
+      .{ 5, 6, 7, 8 },
+      .{ 9, 10, 11, 12 },
+    },
+    .toggles = .{ true, false, true, true, false },
+    .maybe_payload = Payload{ .opt_state = State{ .text = "maybe-payload-1" } },
+    .err_payload = Payload{ .deep = .{
+      .lines = &.{ "err-p1-a", "err-p1-b" },
+      .maybe_err = @as(?[]const u8, null),
+      .vector = .{ 10, 20, 30, 40, -10, -20, -30, -40 },
+    } },
+    .optional_root = &d2,
+    .fanout = &.{ &a1, &a2, null, &a4 },
+    .sentinel = {},
+  };
+
+  const mega2 = Mega{
+    .title = "mega-2",
+    .version = 2,
+    .root_a = &a2,
+    .root_b = &b2,
+    .root_c = NodeC{ .tuple = .{ .a = &a3, .b = &b3, .msg = "mega2-tuple" } },
+    .root_d = &d2,
+    .blobs = &.{ blob2, blob3, blob4 },
+    .payloads = &.{
+      Payload{ .small = 7 },
+      Payload{ .state = State{ .text = "mega2-state" } },
+      Payload{ .blob_chain = &.{ &blob2, &blob5 } },
+      Payload{ .b_ref = &b4 },
+      Payload{ .history = &.{ State{ .idle = {} }, State{ .nested_error = Err.Corrupt } } },
+    },
+    .states = &.{
+      State{ .text = "s2-1" },
+      State{ .refs = .{ .a = &a3, .b = &b4, .d = &d4 } },
+      State{ .node_c = c3 },
+    },
+    .nested_strings = &.{
+      &.{ "x", "y" },
+      &.{ "z0", "z1", "z2", "z3" },
+    },
+    .matrix = .{
+      .{ 12, 11, 10, 9 },
+      .{ 8, 7, 6, 5 },
+      .{ 4, 3, 2, 1 },
+    },
+    .toggles = .{ false, false, true, false, true },
+    .maybe_payload = null,
+    .err_payload = Err.Exploded,
+    .optional_root = null,
+    .fanout = &.{ &a2, &a3, &a4 },
+    .sentinel = {},
+  };
+
+  const mega1_size = MegaWrapper.getSize(&mega1);
+  const mega2_size = MegaWrapper.getSize(&mega2);
+  try testing.expect(mega1_size > @sizeOf(Mega));
+  try testing.expect(mega2_size > @sizeOf(Mega));
+  try testing.expect(mega1_size < 16 * 1024 * 1024);
+  try testing.expect(mega2_size < 16 * 1024 * 1024);
+
+  try testMergingDemerging(mega1, .{});
+  try testMergingDemerging(mega2, .{});
+
+  var wrapped = try MegaWrapper.init(&mega1, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+  try expectEqual(&mega1, wrapped.get());
+
+  var cloned = try wrapped.clone(testing.allocator);
+  defer cloned.deinit(testing.allocator);
+  try expectEqual(wrapped.get(), cloned.get());
+
+  for (0..3) |_| {
+    const moved = try testing.allocator.alignedAlloc(u8, MegaWrapper.alignment, cloned.memory.len);
+    @memcpy(moved, cloned.memory);
+    testing.allocator.free(cloned.memory);
+    cloned.memory = moved;
+    cloned.repointer();
+    try expectEqual(&mega1, cloned.get());
+  }
+
+  try wrapped.set(testing.allocator, &mega2);
+  try expectEqual(&mega2, wrapped.get());
+
+  try wrapped.set(testing.allocator, &mega1);
+  try expectEqual(&mega1, wrapped.get());
 }
