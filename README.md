@@ -185,4 +185,4 @@ OneAlloc divides the single memory block into two sections: `[ Static Buffer | D
   * *Unsupported:* Recursive Data (e.g., Node A points to Node B, Node B points to Node A).
 2 **Unknown Pointers:** `[*c]`, `[*]`, and `opaque` pointers are compile errors unless `serialize_unknown_pointer_as_usize` is enabled in which case, the literal pointer address is stored.
 3 **Data Cycles Will Cause Stack Overflow:** Attempting to merge a data structure with a cycle will cause infinite recursion and crash the program.
-
+4 **Pointer Aliasing / Topology:** When pointers are dereferenced (`depointer = true`, the default), shared pointer identity is not preserved. Two fields that originally point to the same object may point to separate copies after merge.

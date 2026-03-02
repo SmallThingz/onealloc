@@ -95,7 +95,7 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
     pub fn clone(noalias self: *const @This(), gpa: std.mem.Allocator) !@This() {
       // We could return try @This().init(allocator, self.get());
       // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
-      const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len)};
+      const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len) };
       @memcpy(retval.memory, self.memory);
       retval.repointer();
       return retval;
@@ -186,14 +186,14 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
     /// Creates a new, independent Wrapper containing a deep copy of the data.
     /// `new_val` is modified in-place; is stores then pointers inside of the returned wrapper
-    pub fn clone(self: *const @This(), old_val: *const T, gpa: std.mem.Allocator) !std.meta.Tuple(&.{T, @This()}) {
+    pub fn clone(self: *const @This(), old_val: *const T, gpa: std.mem.Allocator) !std.meta.Tuple(&.{ T, @This() }) {
       // We could return try @This().init(allocator, self.get());
       // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
-      const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len)};
+      const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len) };
       @memcpy(retval.memory, self.memory);
       var new_val = old_val.*;
       retval.repointer(&new_val);
-      return .{new_val, retval};
+      return .{ new_val, retval };
     }
 
     /// Set a new value into the wrapper. Invalidates any references to the old value

@@ -19,7 +19,11 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
   }
 
   switch (@typeInfo(@TypeOf(actual))) {
-    .noreturn, .@"opaque", .frame, .@"anyframe", => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
+    .noreturn,
+    .@"opaque",
+    .frame,
+    .@"anyframe",
+    => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
 
     .void => return,
 
@@ -47,7 +51,7 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
         },
         .many => {
           if (actual != expected) {
-            print("expected pointers to be the same for {s}\n", .{ @typeName(@TypeOf(actual)) });
+            print("expected pointers to be the same for {s}\n", .{@typeName(@TypeOf(actual))});
             print("expected: {any}\nactual: {any}\n", .{ expected, actual });
             return error.TestExpectedEqual;
           }
@@ -94,7 +98,7 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
 
     .@"struct" => |structType| {
       inline for (structType.fields) |field| {
-        errdefer print("field `{s}` incorrect\n", .{ field.name });
+        errdefer print("field `{s}` incorrect\n", .{field.name});
         try expectEqual(@field(expected, field.name), @field(actual, field.name));
       }
     },
@@ -208,7 +212,7 @@ test "primitives" {
 test "pointers" {
   var x: u64 = 12345;
   try testMerging(&x);
-  try testMergingDemerging(@as(*u64, &x), .{.depointer = false});
+  try testMergingDemerging(@as(*u64, &x), .{ .depointer = false });
 }
 
 test "slices" {
@@ -220,12 +224,12 @@ test "slices" {
   try testMerging(@as([]const Point, &.{ .{ .x = 1, .y = 2 }, .{ .x = 3, .y = 4 } }));
 
   // nested
-  try testMerging(@as([]const []const u8, &.{"hello", "world", "zig", "rocks"}));
+  try testMerging(@as([]const []const u8, &.{ "hello", "world", "zig", "rocks" }));
 
   // empty
   try testMerging(@as([]const u8, &.{}));
   try testMerging(@as([]const []const u8, &.{}));
-  try testMerging(@as([]const []const u8, &.{"", "a", ""}));
+  try testMerging(@as([]const []const u8, &.{ "", "a", "" }));
 }
 
 test "arrays" {
@@ -578,7 +582,7 @@ test "union with multiple dynamic fields" {
   };
 
   try testMerging(Packet{ .message = "hello world" });
-  try testMerging(Packet{ .points = &.{.{ .x = 1.0, .y = 2.0 }, .{ .x = 3.0, .y = 4.0}} });
+  try testMerging(Packet{ .points = &.{ .{ .x = 1.0, .y = 2.0 }, .{ .x = 3.0, .y = 4.0 } } });
   try testMerging(Packet{ .code = 404 });
 }
 
@@ -625,7 +629,7 @@ test "recursion limit with dereference" {
   const n2 = Node{ .payload = 2, .next = &n3 };
   const n1 = Node{ .payload = 1, .next = &n2 };
 
-  // This should only serialize n1 and the pointer to n2. 
+  // This should only serialize n1 and the pointer to n2.
   // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
   try testMergingDemerging(n1, .{});
 }
@@ -781,7 +785,7 @@ test "Wrapper set" {
   var d = wrapped.get();
   try expectEqual(@as(u32, 2), d.id);
   try std.testing.expectEqualSlices(u32, &.{ 20, 30, 40 }, d.items);
-  
+
   // Set to a smaller value
   try wrapped.set(testing.allocator, &.{ .id = 3, .items = &.{50} });
   d = wrapped.get();
@@ -801,7 +805,7 @@ test "Wrapper repointer" {
   // Manually move the memory to a new buffer (like reading from a file etc.)
   const new_buffer = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(@TypeOf(wrapped.memory))), wrapped.memory.len);
   @memcpy(new_buffer, wrapped.memory);
-  
+
   // free the old memory and update the wrapper's memory slice
   testing.allocator.free(wrapped.memory);
   wrapped.memory = new_buffer;
@@ -826,7 +830,7 @@ test "serialization_functions: unknown pointers as usize" {
   const S = struct { ptr: [*]u8 };
   var dummy: u8 = 0;
   const val = S{ .ptr = @ptrCast(&dummy) };
-  
+
   try testMergingDemerging(val, .{ .serialize_unknown_pointer_as_usize = true });
 }
 
@@ -846,22 +850,22 @@ test "serialization_functions: opaque with signature" {
 
 test "serialization_functions: alignment sorting in structs" {
   const val = struct {
-    a: []const u8,  // align 1
+    a: []const u8, // align 1
     b: []const u32, // align 4
     c: []const u64, // align 8
-  } {
+  }{
     .a = "1",
     .b = &.{1},
     .c = &.{1},
   };
-  
+
   try testMerging(val);
 }
 
 test "serialization_functions: error union with dynamic payload" {
   const MyError = error{Failure};
   const S = struct { data: MyError![]const u8 };
-  
+
   try testMerging(S{ .data = "payload" });
   try testMerging(S{ .data = MyError.Failure });
 }
@@ -876,7 +880,7 @@ test "meta: Mem utility functions" {
   const unaligned = mem.from(1);
   const realigned = unaligned.alignForward(8);
   try testing.expect(std.mem.isAligned(@intFromPtr(realigned.ptr), 8));
-  
+
   _ = mem.assertAligned(16);
 
   var out_buf: std.ArrayList(u8) = .empty;
@@ -915,7 +919,7 @@ test "root: DynamicWrapper and DynamicWrapConverted" {
   defer dw.deinit(testing.allocator);
 
   try testing.expectEqualStrings("original", val.name);
-  
+
   const mem_start = @intFromPtr(dw.memory.ptr);
   const mem_end = mem_start + dw.memory.len;
   try testing.expect(@intFromPtr(val.name.ptr) >= mem_start);
@@ -940,7 +944,7 @@ test "serialization_functions: alignForward underflow catch" {
   var buf: [4]u8 align(4) = undefined;
   const mem = SF.Dynamic.init(&buf);
   const offset = mem.from(2);
-  _ = offset.alignForward(4); 
+  _ = offset.alignForward(4);
 }
 
 test "serialization_functions: nested deslicing false" {
@@ -1003,9 +1007,9 @@ test "serialization_functions: alignment stress test" {
   // A struct that forces padding between dynamic segments
   const StrictAlign = struct {
     // align(1)
-    a: []const u8, 
+    a: []const u8,
     // align(16) - forces alignForward to jump significantly
-    b: []const align(16) u32, 
+    b: []align(16) const u32,
     c: u8,
   };
 
@@ -1025,9 +1029,9 @@ test "serialization_functions: alignment stress test 2" {
   // A struct that forces padding between dynamic segments
   const StrictAlign = struct {
     // align(1)
-    a: []const u8, 
+    a: []const u8,
     // align(16) - forces alignForward to jump significantly
-    b: []const align(16) u32, 
+    b: []align(16) const u32,
     c: u8,
   };
 
@@ -1047,7 +1051,7 @@ test "meta: NonConstPointer with different sizes" {
   const T = []const u8;
   const One = meta.NonConstPointer(T, .one);
   const Slice = meta.NonConstPointer(T, .slice);
-  
+
   try testing.expect(@typeInfo(One).pointer.size == .one);
   try testing.expect(@typeInfo(Slice).pointer.size == .slice);
   try testing.expect(@typeInfo(One).pointer.is_const == false);
@@ -1086,7 +1090,7 @@ test "serialization_functions: recursive structs with multiple paths" {
 
 test "serialization_functions: context reop and realign" {
   const options = MergeOptions{ .deslice = false };
-  const ctx = Context {
+  const ctx = Context{
     .Type = u32,
     .options = options,
     .merge_fn = ToMergedT,
@@ -1095,4 +1099,185 @@ test "serialization_functions: context reop and realign" {
   const ctx_new = ctx.reop(.{ .deslice = true });
   try testing.expect(ctx.options.deslice == false);
   try testing.expect(ctx_new.options.deslice == true);
+}
+
+fn testWrapperSetAllocationFailurePath(allocator: std.mem.Allocator) !void {
+  const S = struct {
+    id: u32,
+    data: []const u8,
+  };
+
+  var wrapped = try Wrapper(S, .{}).init(&.{ .id = 1, .data = "x" }, allocator);
+  defer wrapped.deinit(allocator);
+
+  const next = S{
+    .id = 2,
+    .data = "this payload is intentionally much larger than the previous payload",
+  };
+  try wrapped.set(allocator, &next);
+
+  try testing.expectEqual(@as(u32, 2), wrapped.get().id);
+  try testing.expectEqualStrings(next.data, wrapped.get().data);
+}
+
+fn testDynamicWrapperSetAllocationFailurePath(allocator: std.mem.Allocator) !void {
+  const S = struct {
+    name: []const u8,
+    id: u32,
+  };
+  const DynWrap = root.DynamicWrapper(S, .{});
+
+  var original = S{ .name = "tiny", .id = 1 };
+  var wrapped = try DynWrap.init(&original, allocator);
+  defer wrapped.deinit(allocator);
+
+  var next = S{
+    .name = "this payload is intentionally much larger than the previous payload",
+    .id = 2,
+  };
+  try wrapped.set(allocator, &next);
+
+  try testing.expectEqual(@as(u32, 2), next.id);
+  try testing.expectEqualStrings("this payload is intentionally much larger than the previous payload", next.name);
+}
+
+test "root: Wrapper.set is allocation-failure safe" {
+  try testing.checkAllAllocationFailures(testing.allocator, testWrapperSetAllocationFailurePath, .{});
+}
+
+test "root: DynamicWrapper.set is allocation-failure safe" {
+  try testing.checkAllAllocationFailures(testing.allocator, testDynamicWrapperSetAllocationFailurePath, .{});
+}
+
+test "pointer alias topology: depointer duplicates shared pointees" {
+  const S = struct {
+    a: *const u32,
+    b: *const u32,
+  };
+
+  var value: u32 = 123;
+  const input = S{ .a = &value, .b = &value };
+
+  var wrapped = try Wrapper(S, .{}).init(&input, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  const out = wrapped.get();
+  try testing.expect(out.a != out.b);
+  try testing.expectEqual(out.a.*, out.b.*);
+}
+
+test "pointer alias topology: depointer=false preserves raw pointer identity" {
+  const S = struct {
+    a: *const u32,
+    b: *const u32,
+  };
+
+  var value: u32 = 321;
+  const input = S{ .a = &value, .b = &value };
+
+  var wrapped = try Wrapper(S, .{ .depointer = false }).init(&input, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  const out = wrapped.get();
+  try testing.expect(out.a == &value);
+  try testing.expect(out.b == &value);
+  try testing.expect(out.a == out.b);
+}
+
+test "recursive stress: self-recursive acyclic graph with set and clone" {
+  const Node = struct {
+    id: u32,
+    label: []const u8,
+    next: ?*const @This(),
+    jump: ?*const @This(),
+  };
+
+  const n5 = Node{ .id = 5, .label = "n5", .next = null, .jump = null };
+  const n4 = Node{ .id = 4, .label = "n4", .next = &n5, .jump = null };
+  const n3 = Node{ .id = 3, .label = "n3", .next = &n4, .jump = &n5 };
+  const n2 = Node{ .id = 2, .label = "n2", .next = &n3, .jump = &n4 };
+  const n1 = Node{ .id = 1, .label = "n1", .next = &n2, .jump = &n5 };
+
+  try testMergingDemerging(n1, .{});
+
+  var wrapped = try Wrapper(Node, .{}).init(&n1, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  var cloned = try wrapped.clone(testing.allocator);
+  defer cloned.deinit(testing.allocator);
+  try expectEqual(wrapped.get(), cloned.get());
+
+  const m3 = Node{ .id = 30, .label = "m3", .next = null, .jump = null };
+  const m2 = Node{ .id = 20, .label = "m2", .next = &m3, .jump = null };
+  const m1 = Node{ .id = 10, .label = "m1", .next = &m2, .jump = &m3 };
+
+  try wrapped.set(testing.allocator, &m1);
+  try expectEqual(&m1, wrapped.get());
+}
+
+test "recursive stress: mutually recursive acyclic graph survives repeated repointer" {
+  const Namespace = struct {
+    const NodeA = struct {
+      id: u32,
+      name: []const u8,
+      next: ?*const @This(),
+      buddy: ?*const NodeB,
+    };
+    const NodeB = struct {
+      score: u64,
+      note: []const u8,
+      next: ?*const @This(),
+      owner: ?*const NodeA,
+    };
+  };
+
+  const NodeA = Namespace.NodeA;
+  const NodeB = Namespace.NodeB;
+  const WrappedA = Wrapper(NodeA, .{});
+
+  const a3 = NodeA{ .id = 3, .name = "a3", .next = null, .buddy = null };
+  const b2 = NodeB{ .score = 200, .note = "b2", .next = null, .owner = &a3 };
+  const a2 = NodeA{ .id = 2, .name = "a2", .next = &a3, .buddy = &b2 };
+  const b1 = NodeB{ .score = 100, .note = "b1", .next = &b2, .owner = &a2 };
+  const a1 = NodeA{ .id = 1, .name = "a1", .next = &a2, .buddy = &b1 };
+
+  try testMergingDemerging(a1, .{});
+
+  var wrapped = try WrappedA.init(&a1, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  for (0..4) |_| {
+    const moved = try testing.allocator.alignedAlloc(u8, WrappedA.alignment, wrapped.memory.len);
+    @memcpy(moved, wrapped.memory);
+    testing.allocator.free(wrapped.memory);
+    wrapped.memory = moved;
+    wrapped.repointer();
+    try expectEqual(&a1, wrapped.get());
+  }
+}
+
+test "recursive stress: repeated set across acyclic recursive payloads" {
+  const Node = struct {
+    payload: u32,
+    msg: []const u8,
+    next: ?*const @This(),
+  };
+
+  const a3 = Node{ .payload = 3, .msg = "a3", .next = null };
+  const a2 = Node{ .payload = 2, .msg = "a2", .next = &a3 };
+  const a1 = Node{ .payload = 1, .msg = "a1", .next = &a2 };
+
+  const b4 = Node{ .payload = 40, .msg = "b4", .next = null };
+  const b3 = Node{ .payload = 30, .msg = "b3", .next = &b4 };
+  const b2 = Node{ .payload = 20, .msg = "b2", .next = &b3 };
+  const b1 = Node{ .payload = 10, .msg = "b1", .next = &b2 };
+
+  var wrapped = try Wrapper(Node, .{}).init(&a1, testing.allocator);
+  defer wrapped.deinit(testing.allocator);
+
+  try expectEqual(&a1, wrapped.get());
+  try wrapped.set(testing.allocator, &b1);
+  try expectEqual(&b1, wrapped.get());
+  try wrapped.set(testing.allocator, &a1);
+  try expectEqual(&a1, wrapped.get());
 }
