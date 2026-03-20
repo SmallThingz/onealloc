@@ -73,6 +73,12 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
                             return e;
                         };
                     }
+                    if (std.meta.sentinel(@TypeOf(actual))) |sentinel| {
+                        expectEqual(sentinel, actual[actual.len]) catch |e| {
+                            print("slice sentinel incorrect.\nexpected sentinel:: {any}\nfound sentinel:: {any}\n", .{ sentinel, actual[actual.len] });
+                            return e;
+                        };
+                    }
                 },
             }
         },
@@ -209,6 +215,7 @@ test "pointers" {
 test "slices" {
     // primitive
     try testMerging(@as([]const u8, "hello zig"));
+    try testMerging(@as([:0]const u8, "hello zig"));
 
     // struct
     const Point = struct { x: u8, y: u8 };
@@ -216,11 +223,30 @@ test "slices" {
 
     // nested
     try testMerging(@as([]const []const u8, &.{ "hello", "world", "zig", "rocks" }));
+    try testMerging(@as([]const [:0]const u8, &.{ "hello", "", "world" }));
 
     // empty
     try testMerging(@as([]const u8, &.{}));
+    try testMerging(@as([:0]const u8, ""));
     try testMerging(@as([]const []const u8, &.{}));
     try testMerging(@as([]const []const u8, &.{ "", "a", "" }));
+}
+
+test "sentinel slices preserve sentinel byte and size" {
+    const S = struct {
+        data: [:0]const u8,
+    };
+
+    const value = S{ .data = "abc" };
+    const Wrapped = Wrapper(S, .{});
+
+    try testing.expectEqual(@sizeOf(S) + 4, Wrapped.getSize(&value));
+
+    var wrapped = try Wrapped.init(&value, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u8, 0), wrapped.get().data[wrapped.get().data.len]);
+    try expectEqual(&value, wrapped.get());
 }
 
 test "arrays" {

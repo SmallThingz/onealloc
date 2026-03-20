@@ -97,6 +97,8 @@ pub fn GetSliceMergedT(context: Context) type {
     const T = context.Type;
     const pi = @typeInfo(T).pointer;
     const ptr_alignment = pi.alignment orelse @alignOf(pi.child);
+    const sentinel = pi.sentinel();
+    const sentinel_len: usize = if (sentinel == null) 0 else 1;
     std.debug.assert(pi.size == .slice);
     std.debug.assert(std.mem.Alignment.max(.fromByteUnits(ptr_alignment), meta.max_align) == meta.max_align);
     if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
@@ -113,13 +115,17 @@ pub fn GetSliceMergedT(context: Context) type {
             const aligned_dynamic = dynamic.alignForward(ptr_alignment);
             const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
             const len = val.*.len;
-            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * len).alignForward(ptr_alignment).from(0);
+            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0);
 
             // We can't write the dynamic data before static data as we would need to get the size of dynamic data first. Would is prettie inefficient
             @memcpy(child_static_ptr[0..len], val.*);
+            if (sentinel) |sentinel_value| {
+                child_static_ptr[len] = sentinel_value;
+            }
             val.*.ptr = child_static_ptr; // TODO: figure out if this is ok
             if (!SubStatic) {
                 for (0..len) |i| Child.write(&val.*[i], dynamic);
+                if (sentinel_len != 0) Child.write(&child_static_ptr[len], dynamic);
             }
 
             if (builtin.mode == .Debug) {
@@ -130,10 +136,14 @@ pub fn GetSliceMergedT(context: Context) type {
 
         pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
             size.* = std.mem.alignForward(usize, size.*, ptr_alignment);
-            size.* += @sizeOf(pi.child) * val.*.len;
+            size.* += @sizeOf(pi.child) * (val.*.len + sentinel_len);
             size.* = std.mem.alignForward(usize, size.*, ptr_alignment);
             if (!SubStatic) {
                 for (0..val.*.len) |i| Child.addDynamicSize(&val.*[i], size);
+                if (sentinel) |sentinel_value| {
+                    const sentinel_copy = sentinel_value;
+                    Child.addDynamicSize(&sentinel_copy, size);
+                }
             }
         }
 
@@ -143,11 +153,12 @@ pub fn GetSliceMergedT(context: Context) type {
             const aligned_dynamic = dynamic.alignForward(ptr_alignment);
             const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
             const len = val.*.len;
-            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * len).alignForward(ptr_alignment).from(0);
+            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0);
 
             val.*.ptr = @ptrCast(child_static_ptr); // TODO: figure out if this is ok
             if (!SubStatic) {
                 for (0..val.*.len) |i| Child.repointer(&val.*[i], dynamic);
+                if (sentinel_len != 0) Child.repointer(&child_static_ptr[len], dynamic);
             }
 
             if (builtin.mode == .Debug) {
