@@ -810,6 +810,34 @@ test "Wrapper set" {
     try std.testing.expectEqualSlices(u32, &.{50}, d.items);
 }
 
+test "Wrapper set accepts self-backed input" {
+    const Data = struct { id: u32, items: []const u32 };
+    var wrapped = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{ 10, 20, 30 } }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
+
+    wrapped.get().id = 99;
+    try wrapped.set(testing.allocator, wrapped.get());
+
+    try testing.expectEqual(@as(u32, 99), wrapped.get().id);
+    try std.testing.expectEqualSlices(u32, &.{ 10, 20, 30 }, wrapped.get().items);
+}
+
+test "Wrapper set accepts nested self-backed input" {
+    const Data = struct { id: u32, items: []const u32 };
+    var wrapped = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{ 10, 20, 30, 40 } }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
+
+    const current = wrapped.get();
+    var next = Data{
+        .id = 2,
+        .items = current.items[1..],
+    };
+    try wrapped.set(testing.allocator, &next);
+
+    try testing.expectEqual(@as(u32, 2), wrapped.get().id);
+    try std.testing.expectEqualSlices(u32, &.{ 20, 30, 40 }, wrapped.get().items);
+}
+
 test "Wrapper repointer" {
     const LogEntry = struct {
         timestamp: u64,
@@ -950,6 +978,29 @@ test "root: DynamicWrapper and DynamicWrapConverted" {
     try testing.expectEqualStrings("new name that is longer", val3.name);
 }
 
+test "root: DynamicWrapper.set accepts self-backed input" {
+    const S = struct {
+        name: []const u8,
+        tags: []const []const u8,
+    };
+
+    const DynWrap = root.DynamicWrapper(S, .{});
+    var val = S{
+        .name = "initial",
+        .tags = &.{ "alpha", "beta" },
+    };
+
+    var dw = try DynWrap.init(&val, testing.allocator);
+    defer dw.deinit(testing.allocator);
+
+    val.name = "mutated while self-backed";
+    try dw.set(testing.allocator, &val);
+
+    try testing.expectEqualStrings("mutated while self-backed", val.name);
+    try testing.expectEqualStrings("alpha", val.tags[0]);
+    try testing.expectEqualStrings("beta", val.tags[1]);
+}
+
 test "root: DynamicWrapper returns null for static types" {
     const StaticS = struct { a: u32, b: i32 };
     const res = root.DynamicWrapper(StaticS, .{});
@@ -1017,6 +1068,7 @@ test "serialization_functions: zero-sized array of dynamic types" {
     };
     // Should be treated as STATIC
     try testMerging(S{ .items = .{} });
+    try testing.expect(root.DynamicWrapper(S, .{}) == void);
 }
 
 test "serialization_functions: alignment stress test" {

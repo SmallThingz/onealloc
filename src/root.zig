@@ -104,13 +104,13 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
         /// Set a new value into the wrapper. Invalidates any references to the old value
         /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
         pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *const T) !void {
-            const new_len = getSize(value);
-            self.memory = gpa.remap(self.memory, new_len) orelse blk: {
-                const new = try gpa.alignedAlloc(u8, alignment, new_len);
-                gpa.free(self.memory);
-                break :blk new;
-            };
-            self.setAssert(value);
+            // Stage through a fresh wrapper so inputs that reference the current
+            // buffer remain valid while we reserialize and swap ownership.
+            var staged = try @This().init(value, gpa);
+            const old_memory = self.memory;
+            self.memory = staged.memory;
+            staged.memory = old_memory;
+            staged.deinit(gpa);
         }
 
         /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
@@ -199,13 +199,13 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
         /// Set a new value into the wrapper. Invalidates any references to the old value
         /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
         pub fn set(self: *@This(), gpa: std.mem.Allocator, value: *T) !void {
-            const new_len = getSize(value);
-            self.memory = gpa.remap(self.memory, new_len) orelse blk: {
-                const new = try gpa.alignedAlloc(u8, alignment, new_len);
-                gpa.free(self.memory);
-                break :blk new;
-            };
-            return self.setAssert(value);
+            var staged_value = value.*;
+            var staged = try @This().init(&staged_value, gpa);
+            const old_memory = self.memory;
+            self.memory = staged.memory;
+            staged.memory = old_memory;
+            value.* = staged_value;
+            staged.deinit(gpa);
         }
 
         /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value

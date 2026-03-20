@@ -176,6 +176,7 @@ pub fn GetArrayMergedT(context: Context) type {
     const T = context.Type;
     @setEvalBranchQuota(1000_000);
     const ai = @typeInfo(T).array;
+    if (ai.len == 0) return GetDirectMergedT(context);
     const Child = context.T(ai.child).merge(root.ToMergedT);
 
     // If the child has no dynamic data, the entire array is static.
