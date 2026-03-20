@@ -7,1707 +7,1704 @@ const MergeOptions = root.MergeOptions;
 const Context = SF.Context;
 
 test {
-  std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }
 
 fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void {
-  const print = std.debug.print;
+    const print = std.debug.print;
 
-  if (std.meta.activeTag(@typeInfo(@TypeOf(actual))) != std.meta.activeTag(@typeInfo(@TypeOf(expected)))) {
-    print("expected type {s}, found type {s}\n", .{ @typeName(@TypeOf(expected)), @typeName(@TypeOf(actual)) });
-    return error.TestExpectedEqual;
-  }
-
-  switch (@typeInfo(@TypeOf(actual))) {
-    .noreturn,
-    .@"opaque",
-    .frame,
-    .@"anyframe",
-    => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
-
-    .void => return,
-
-    .type => {
-      if (actual != expected) {
-        print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
+    if (std.meta.activeTag(@typeInfo(@TypeOf(actual))) != std.meta.activeTag(@typeInfo(@TypeOf(expected)))) {
+        print("expected type {s}, found type {s}\n", .{ @typeName(@TypeOf(expected)), @typeName(@TypeOf(actual)) });
         return error.TestExpectedEqual;
-      }
-    },
+    }
 
-    .bool, .int, .float, .comptime_float, .comptime_int, .enum_literal, .@"enum", .@"fn", .error_set => {
-      if (actual != expected) {
-        print("expected {}, found {}\n", .{ expected, actual });
-        return error.TestExpectedEqual;
-      }
-    },
+    switch (@typeInfo(@TypeOf(actual))) {
+        .noreturn,
+        .@"opaque",
+        .frame,
+        .@"anyframe",
+        => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
 
-    .pointer => |pointer| {
-      switch (pointer.size) {
-        .one, .c => {
-          if (actual == expected) {
-            return;
-          }
-          return expectEqual(actual.*, expected.*);
+        .void => return,
+
+        .type => {
+            if (actual != expected) {
+                print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
+                return error.TestExpectedEqual;
+            }
         },
-        .many => {
-          if (actual != expected) {
-            print("expected pointers to be the same for {s}\n", .{@typeName(@TypeOf(actual))});
-            print("expected: {any}\nactual: {any}\n", .{ expected, actual });
-            return error.TestExpectedEqual;
-          }
+
+        .bool, .int, .float, .comptime_float, .comptime_int, .enum_literal, .@"enum", .@"fn", .error_set => {
+            if (actual != expected) {
+                print("expected {}, found {}\n", .{ expected, actual });
+                return error.TestExpectedEqual;
+            }
         },
-        .slice => {
-          if (actual.len != expected.len) {
-            print("expected slice len {}, found {}\n", .{ expected.len, actual.len });
-            print("expected: {any}\nactual: {any}\n", .{ expected, actual });
-            return error.TestExpectedEqual;
-          }
-          if (actual.ptr == expected.ptr) {
-            // std.debug.dumpCurrentStackTrace(null);
-            // print("slices are same for {s}\n", .{ @typeName(@TypeOf(actual)) });
-            return;
-          }
-          for (actual, expected, 0..) |va, ve, i| {
-            expectEqual(va, ve) catch |e| {
-              print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
-              return e;
-            };
-          }
+
+        .pointer => |pointer| {
+            switch (pointer.size) {
+                .one, .c => {
+                    if (actual == expected) {
+                        return;
+                    }
+                    return expectEqual(actual.*, expected.*);
+                },
+                .many => {
+                    if (actual != expected) {
+                        print("expected pointers to be the same for {s}\n", .{@typeName(@TypeOf(actual))});
+                        print("expected: {any}\nactual: {any}\n", .{ expected, actual });
+                        return error.TestExpectedEqual;
+                    }
+                },
+                .slice => {
+                    if (actual.len != expected.len) {
+                        print("expected slice len {}, found {}\n", .{ expected.len, actual.len });
+                        print("expected: {any}\nactual: {any}\n", .{ expected, actual });
+                        return error.TestExpectedEqual;
+                    }
+                    if (actual.ptr == expected.ptr) {
+                        // std.debug.dumpCurrentStackTrace(null);
+                        // print("slices are same for {s}\n", .{ @typeName(@TypeOf(actual)) });
+                        return;
+                    }
+                    for (actual, expected, 0..) |va, ve, i| {
+                        expectEqual(va, ve) catch |e| {
+                            print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
+                            return e;
+                        };
+                    }
+                },
+            }
         },
-      }
-    },
 
-    .array => |array| {
-      inline for (0..array.len) |i| {
-        expectEqual(expected[i], actual[i]) catch |e| {
-          print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
-          return e;
-        };
-      }
-    },
+        .array => |array| {
+            inline for (0..array.len) |i| {
+                expectEqual(expected[i], actual[i]) catch |e| {
+                    print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
+                    return e;
+                };
+            }
+        },
 
-    .vector => |info| {
-      var i: usize = 0;
-      while (i < info.len) : (i += 1) {
-        if (!std.meta.eql(expected[i], actual[i])) {
-          print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
-          return error.TestExpectedEqual;
-        }
-      }
-    },
+        .vector => |info| {
+            inline for (0..info.len) |i| {
+                if (!std.meta.eql(expected[i], actual[i])) {
+                    print("index {d} incorrect.\nexpected:: {any}\nfound:: {any}\n", .{ i, expected[i], actual[i] });
+                    return error.TestExpectedEqual;
+                }
+            }
+        },
 
-    .@"struct" => |structType| {
-      inline for (structType.fields) |field| {
-        errdefer print("field `{s}` incorrect\n", .{field.name});
-        try expectEqual(@field(expected, field.name), @field(actual, field.name));
-      }
-    },
+        .@"struct" => |structType| {
+            inline for (structType.fields) |field| {
+                errdefer print("field `{s}` incorrect\n", .{field.name});
+                try expectEqual(@field(expected, field.name), @field(actual, field.name));
+            }
+        },
 
-    .@"union" => |union_info| {
-      if (union_info.tag_type == null) @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
-      const Tag = std.meta.Tag(@TypeOf(expected));
-      const expectedTag = @as(Tag, expected);
-      const actualTag = @as(Tag, actual);
+        .@"union" => |union_info| {
+            if (union_info.tag_type == null) @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
+            const Tag = std.meta.Tag(@TypeOf(expected));
+            const expectedTag = @as(Tag, expected);
+            const actualTag = @as(Tag, actual);
 
-      try expectEqual(expectedTag, actualTag);
+            try expectEqual(expectedTag, actualTag);
 
-      switch (expected) {
-        inline else => |val, tag| try expectEqual(val, @field(actual, @tagName(tag))),
-      }
-    },
+            switch (expected) {
+                inline else => |val, tag| try expectEqual(val, @field(actual, @tagName(tag))),
+            }
+        },
 
-    .optional => {
-      if (expected) |expected_payload| {
-        if (actual) |actual_payload| {
-          try expectEqual(expected_payload, actual_payload);
-        } else {
-          print("expected {any}, found null\n", .{expected_payload});
-          return error.TestExpectedEqual;
-        }
-      } else {
-        if (actual) |actual_payload| {
-          print("expected null, found {any}\n", .{actual_payload});
-          return error.TestExpectedEqual;
-        }
-      }
-    },
+        .optional => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqual(expected_payload, actual_payload);
+                } else {
+                    print("expected {any}, found null\n", .{expected_payload});
+                    return error.TestExpectedEqual;
+                }
+            } else {
+                if (actual) |actual_payload| {
+                    print("expected null, found {any}\n", .{actual_payload});
+                    return error.TestExpectedEqual;
+                }
+            }
+        },
 
-    .error_union => {
-      if (expected) |expected_payload| {
-        if (actual) |actual_payload| {
-          try expectEqual(expected_payload, actual_payload);
-        } else |actual_err| {
-          print("expected {any}, found {}\n", .{ expected_payload, actual_err });
-          return error.TestExpectedEqual;
-        }
-      } else |expected_err| {
-        if (actual) |actual_payload| {
-          print("expected {}, found {any}\n", .{ expected_err, actual_payload });
-          return error.TestExpectedEqual;
-        } else |actual_err| {
-          try expectEqual(expected_err, actual_err);
-        }
-      }
-    },
+        .error_union => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqual(expected_payload, actual_payload);
+                } else |actual_err| {
+                    print("expected {any}, found {}\n", .{ expected_payload, actual_err });
+                    return error.TestExpectedEqual;
+                }
+            } else |expected_err| {
+                if (actual) |actual_payload| {
+                    print("expected {}, found {any}\n", .{ expected_err, actual_payload });
+                    return error.TestExpectedEqual;
+                } else |actual_err| {
+                    try expectEqual(expected_err, actual_err);
+                }
+            }
+        },
 
-    else => @compileError("Unsupported type in expectEqual: " ++ @typeName(@TypeOf(expected))),
-  }
+        else => @compileError("Unsupported type in expectEqual: " ++ @typeName(@TypeOf(expected))),
+    }
 }
 
 const ToMergedT = root.ToMergedT;
 
 test {
-  std.testing.refAllDeclsRecursive(@This());
-  std.testing.refAllDeclsRecursive(root);
+    std.testing.refAllDecls(@This());
+    std.testing.refAllDecls(root);
 }
 
 fn testMergingDemerging(_value: anytype, comptime options: MergeOptions) !void {
-  var value = _value;
-  const T = @TypeOf(value);
-  const MergedT = Context.init(T, options, ToMergedT);
+    var value = _value;
+    const T = @TypeOf(value);
+    const MergedT = Context.init(T, options, ToMergedT);
 
-  const Wrapped = root.WrapConverted(T, MergedT);
-  var wrapped: Wrapped = undefined;
+    const Wrapped = root.WrapConverted(T, MergedT);
+    var wrapped: Wrapped = undefined;
 
-  const total_size: usize = Wrapped.getSize(&value);
-  wrapped.memory = try testing.allocator.alignedAlloc(u8, Wrapped.alignment, total_size);
-  defer testing.allocator.free(wrapped.memory);
-  wrapped.setAssert(&value);
-  expectEqual(&value, wrapped.get()) catch |e| {
-    std.log.warn("memory: {any}", .{wrapped.memory});
-    std.log.err("original: {any}\nvalue: {any}", .{ value, wrapped.get() });
-    return e;
-  };
+    const total_size: usize = Wrapped.getSize(&value);
+    wrapped.memory = try testing.allocator.alignedAlloc(u8, Wrapped.alignment, total_size);
+    defer testing.allocator.free(wrapped.memory);
+    wrapped.setAssert(&value);
+    expectEqual(&value, wrapped.get()) catch |e| {
+        std.log.warn("memory: {any}", .{wrapped.memory});
+        std.log.err("original: {any}\nvalue: {any}", .{ value, wrapped.get() });
+        return e;
+    };
 
-  var copy = try wrapped.clone(testing.allocator);
-  defer copy.deinit(testing.allocator);
+    var copy = try wrapped.clone(testing.allocator);
+    defer copy.deinit(testing.allocator);
 
-  @memset(wrapped.memory, 69);
-  expectEqual(&value, copy.get()) catch |e| {
-    std.log.warn("memory: {any}", .{copy.memory});
-    std.log.err("original: {any}\nvalue: {any}", .{ value, copy.get() });
-    return e;
-  };
+    @memset(wrapped.memory, 69);
+    expectEqual(&value, copy.get()) catch |e| {
+        std.log.warn("memory: {any}", .{copy.memory});
+        std.log.err("original: {any}\nvalue: {any}", .{ value, copy.get() });
+        return e;
+    };
 }
 
 fn testMerging(value: anytype) !void {
-  try testMergingDemerging(value, .{});
+    try testMergingDemerging(value, .{});
 }
 
 test "primitives" {
-  try testMerging(@as(u32, 42));
-  try testMerging(@as(f64, 123.456));
-  try testMerging(@as(bool, true));
-  try testMerging(@as(void, {}));
+    try testMerging(@as(u32, 42));
+    try testMerging(@as(f64, 123.456));
+    try testMerging(@as(bool, true));
+    try testMerging(@as(void, {}));
 }
 
 test "pointers" {
-  var x: u64 = 12345;
-  try testMerging(&x);
-  try testMergingDemerging(@as(*u64, &x), .{ .depointer = false });
+    var x: u64 = 12345;
+    try testMerging(&x);
+    try testMergingDemerging(@as(*u64, &x), .{ .depointer = false });
 }
 
 test "slices" {
-  // primitive
-  try testMerging(@as([]const u8, "hello zig"));
+    // primitive
+    try testMerging(@as([]const u8, "hello zig"));
 
-  // struct
-  const Point = struct { x: u8, y: u8 };
-  try testMerging(@as([]const Point, &.{ .{ .x = 1, .y = 2 }, .{ .x = 3, .y = 4 } }));
+    // struct
+    const Point = struct { x: u8, y: u8 };
+    try testMerging(@as([]const Point, &.{ .{ .x = 1, .y = 2 }, .{ .x = 3, .y = 4 } }));
 
-  // nested
-  try testMerging(@as([]const []const u8, &.{ "hello", "world", "zig", "rocks" }));
+    // nested
+    try testMerging(@as([]const []const u8, &.{ "hello", "world", "zig", "rocks" }));
 
-  // empty
-  try testMerging(@as([]const u8, &.{}));
-  try testMerging(@as([]const []const u8, &.{}));
-  try testMerging(@as([]const []const u8, &.{ "", "a", "" }));
+    // empty
+    try testMerging(@as([]const u8, &.{}));
+    try testMerging(@as([]const []const u8, &.{}));
+    try testMerging(@as([]const []const u8, &.{ "", "a", "" }));
 }
 
 test "arrays" {
-  // primitive
-  try testMerging([4]u8{ 1, 2, 3, 4 });
+    // primitive
+    try testMerging([4]u8{ 1, 2, 3, 4 });
 
-  // struct array
-  const Point = struct { x: u8, y: u8 };
-  try testMerging([2]Point{ .{ .x = 1, .y = 2 }, .{ .x = 3, .y = 4 } });
+    // struct array
+    const Point = struct { x: u8, y: u8 };
+    try testMerging([2]Point{ .{ .x = 1, .y = 2 }, .{ .x = 3, .y = 4 } });
 
-  // nested arrays
-  try testMerging([2][2]u8{ .{ 1, 2 }, .{ 3, 4 } });
+    // nested arrays
+    try testMerging([2][2]u8{ .{ 1, 2 }, .{ 3, 4 } });
 
-  // empty
-  try testMerging([0]u8{});
+    // empty
+    try testMerging([0]u8{});
 }
 
 test "structs" {
-  // Simple
-  const Point = struct { x: i32, y: i32 };
-  try testMerging(Point{ .x = -10, .y = 20 });
+    // Simple
+    const Point = struct { x: i32, y: i32 };
+    try testMerging(Point{ .x = -10, .y = 20 });
 
-  // Nested
-  const Line = struct { p1: Point, p2: Point };
-  try testMerging(Line{ .p1 = .{ .x = 1, .y = 2 }, .p2 = .{ .x = 3, .y = 4 } });
+    // Nested
+    const Line = struct { p1: Point, p2: Point };
+    try testMerging(Line{ .p1 = .{ .x = 1, .y = 2 }, .p2 = .{ .x = 3, .y = 4 } });
 }
 
 test "enums" {
-  // Simple
-  const Color = enum { red, green, blue };
-  try testMerging(Color.green);
+    // Simple
+    const Color = enum { red, green, blue };
+    try testMerging(Color.green);
 }
 
 test "optional" {
-  // value
-  var x: ?i32 = 42;
-  try testMerging(x);
-  x = null;
-  try testMerging(x);
+    // value
+    var x: ?i32 = 42;
+    try testMerging(x);
+    x = null;
+    try testMerging(x);
 
-  // pointer
-  var y: i32 = 123;
-  var opt_ptr: ?*i32 = &y;
-  try testMerging(opt_ptr);
+    // pointer
+    var y: i32 = 123;
+    var opt_ptr: ?*i32 = &y;
+    try testMerging(opt_ptr);
 
-  opt_ptr = null;
-  try testMerging(opt_ptr);
+    opt_ptr = null;
+    try testMerging(opt_ptr);
 }
 
 test "error_unions" {
-  const MyError = error{Oops};
-  var eu: MyError!u32 = 123;
-  try testMerging(eu);
-  eu = MyError.Oops;
-  try testMerging(eu);
+    const MyError = error{Oops};
+    var eu: MyError!u32 = 123;
+    try testMerging(eu);
+    eu = MyError.Oops;
+    try testMerging(eu);
 }
 
 test "unions" {
-  const Payload = union(enum) {
-    a: u32,
-    b: bool,
-    c: void,
-  };
-  try testMerging(Payload{ .a = 99 });
-  try testMerging(Payload{ .b = false });
-  try testMerging(Payload{ .c = {} });
+    const Payload = union(enum) {
+        a: u32,
+        b: bool,
+        c: void,
+    };
+    try testMerging(Payload{ .a = 99 });
+    try testMerging(Payload{ .b = false });
+    try testMerging(Payload{ .c = {} });
 }
 
 test "complex struct" {
-  const Nested = struct {
-    c: u4,
-    d: bool,
-  };
+    const Nested = struct {
+        c: u4,
+        d: bool,
+    };
 
-  const KitchenSink = struct {
-    a: i32,
-    b: []const u8,
-    c: [2]Nested,
-    d: ?*const i32,
-    e: f32,
-  };
+    const KitchenSink = struct {
+        a: i32,
+        b: []const u8,
+        c: [2]Nested,
+        d: ?*const i32,
+        e: f32,
+    };
 
-  var value = KitchenSink{
-    .a = -1,
-    .b = "dynamic slice",
-    .c = .{ .{ .c = 1, .d = true }, .{ .c = 2, .d = false } },
-    .d = &@as(i32, 42),
-    .e = 3.14,
-  };
+    var value = KitchenSink{
+        .a = -1,
+        .b = "dynamic slice",
+        .c = .{ .{ .c = 1, .d = true }, .{ .c = 2, .d = false } },
+        .d = &@as(i32, 42),
+        .e = 3.14,
+    };
 
-  try testMerging(value);
+    try testMerging(value);
 
-  value.b = "";
-  try testMerging(value);
+    value.b = "";
+    try testMerging(value);
 
-  value.d = null;
-  try testMerging(value);
+    value.d = null;
+    try testMerging(value);
 }
 
 test "slice of complex structs" {
-  const Item = struct {
-    id: u64,
-    name: []const u8,
-    is_active: bool,
-  };
+    const Item = struct {
+        id: u64,
+        name: []const u8,
+        is_active: bool,
+    };
 
-  const items = [_]Item{
-    .{ .id = 1, .name = "first", .is_active = true },
-    .{ .id = 2, .name = "second", .is_active = false },
-    .{ .id = 3, .name = "", .is_active = true },
-  };
+    const items = [_]Item{
+        .{ .id = 1, .name = "first", .is_active = true },
+        .{ .id = 2, .name = "second", .is_active = false },
+        .{ .id = 3, .name = "", .is_active = true },
+    };
 
-  try testMerging(items[0..]);
+    try testMerging(items[0..]);
 }
 
 test "complex composition" {
-  const Complex1 = struct {
-    a: u32,
-    b: u32,
-    c: u32,
-  };
+    const Complex1 = struct {
+        a: u32,
+        b: u32,
+        c: u32,
+    };
 
-  const Complex2 = struct {
-    a: Complex1,
-    b: []const Complex1,
-  };
+    const Complex2 = struct {
+        a: Complex1,
+        b: []const Complex1,
+    };
 
-  const SuperComplex = struct {
-    a: Complex1,
-    b: Complex2,
-    c: []const union(enum) {
-      a: Complex1,
-      b: Complex2,
-    },
-  };
+    const SuperComplex = struct {
+        a: Complex1,
+        b: Complex2,
+        c: []const union(enum) {
+            a: Complex1,
+            b: Complex2,
+        },
+    };
 
-  const value = SuperComplex{
-    .a = .{ .a = 1, .b = 2, .c = 3 },
-    .b = .{
-      .a = .{ .a = 4, .b = 5, .c = 6 },
-      .b = &.{.{ .a = 7, .b = 8, .c = 9 }},
-    },
-    .c = &.{
-      .{ .a = .{ .a = 10, .b = 11, .c = 12 } },
-      .{ .b = .{ .a = .{ .a = 13, .b = 14, .c = 15 }, .b = &.{.{ .a = 16, .b = 17, .c = 18 }} } },
-    },
-  };
+    const value = SuperComplex{
+        .a = .{ .a = 1, .b = 2, .c = 3 },
+        .b = .{
+            .a = .{ .a = 4, .b = 5, .c = 6 },
+            .b = &.{.{ .a = 7, .b = 8, .c = 9 }},
+        },
+        .c = &.{
+            .{ .a = .{ .a = 10, .b = 11, .c = 12 } },
+            .{ .b = .{ .a = .{ .a = 13, .b = 14, .c = 15 }, .b = &.{.{ .a = 16, .b = 17, .c = 18 }} } },
+        },
+    };
 
-  try testMerging(value);
+    try testMerging(value);
 }
 
 test "multiple dynamic fields" {
-  const MultiDynamic = struct {
-    a: []const u8,
-    b: i32,
-    c: []const u8,
-  };
+    const MultiDynamic = struct {
+        a: []const u8,
+        b: i32,
+        c: []const u8,
+    };
 
-  var value = MultiDynamic{
-    .a = "hello",
-    .b = 12345,
-    .c = "world",
-  };
-  try testMerging(value);
+    var value = MultiDynamic{
+        .a = "hello",
+        .b = 12345,
+        .c = "world",
+    };
+    try testMerging(value);
 
-  value.a = "";
-  try testMerging(value);
+    value.a = "";
+    try testMerging(value);
 }
 
 test "complex array" {
-  const Struct = struct {
-    a: u8,
-    b: u32,
-  };
-  const value = [2]Struct{
-    .{ .a = 1, .b = 100 },
-    .{ .a = 2, .b = 200 },
-  };
+    const Struct = struct {
+        a: u8,
+        b: u32,
+    };
+    const value = [2]Struct{
+        .{ .a = 1, .b = 100 },
+        .{ .a = 2, .b = 200 },
+    };
 
-  try testMerging(value);
+    try testMerging(value);
 }
 
 test "packed struct with mixed alignment fields" {
-  const MixedPack = packed struct {
-    a: u2,
-    b: u8,
-    c: u32,
-    d: bool,
-  };
+    const MixedPack = packed struct {
+        a: u2,
+        b: u8,
+        c: u32,
+        d: bool,
+    };
 
-  const value = MixedPack{
-    .a = 3,
-    .b = 't',
-    .c = 1234567,
-    .d = true,
-  };
+    const value = MixedPack{
+        .a = 3,
+        .b = 't',
+        .c = 1234567,
+        .d = true,
+    };
 
-  try testMerging(value);
+    try testMerging(value);
 }
 
 test "struct with zero-sized fields" {
-  const ZST_1 = struct {
-    a: u32,
-    b: void,
-    c: [0]u8,
-    d: []const u8,
-    e: bool,
-  };
-  try testMerging(ZST_1{
-    .a = 123,
-    .b = {},
-    .c = .{},
-    .d = "non-zst",
-    .e = false,
-  });
+    const ZST_1 = struct {
+        a: u32,
+        b: void,
+        c: [0]u8,
+        d: []const u8,
+        e: bool,
+    };
+    try testMerging(ZST_1{
+        .a = 123,
+        .b = {},
+        .c = .{},
+        .d = "non-zst",
+        .e = false,
+    });
 
-  const ZST_2 = struct {
-    a: u32,
-    zst1: void,
-    zst_array: [0]u64,
-    dynamic_zst_slice: []const void,
-    zst_union: union(enum) {
-      z: void,
-      d: u64,
-    },
-    e: bool,
-  };
+    const ZST_2 = struct {
+        a: u32,
+        zst1: void,
+        zst_array: [0]u64,
+        dynamic_zst_slice: []const void,
+        zst_union: union(enum) {
+            z: void,
+            d: u64,
+        },
+        e: bool,
+    };
 
-  var value_2 = ZST_2{
-    .a = 123,
-    .zst1 = {},
-    .zst_array = .{},
-    .dynamic_zst_slice = &.{ {}, {}, {} },
-    .zst_union = .{ .z = {} },
-    .e = true,
-  };
+    var value_2 = ZST_2{
+        .a = 123,
+        .zst1 = {},
+        .zst_array = .{},
+        .dynamic_zst_slice = &.{ {}, {}, {} },
+        .zst_union = .{ .z = {} },
+        .e = true,
+    };
 
-  try testMerging(value_2);
+    try testMerging(value_2);
 
-  value_2.zst_union = .{ .d = 999 };
-  try testMerging(value_2);
+    value_2.zst_union = .{ .d = 999 };
+    try testMerging(value_2);
 }
 
 test "array of unions with dynamic fields" {
-  const Message = union(enum) {
-    text: []const u8,
-    code: u32,
-    err: void,
-  };
+    const Message = union(enum) {
+        text: []const u8,
+        code: u32,
+        err: void,
+    };
 
-  const messages = [3]Message{
-    .{ .text = "hello" },
-    .{ .code = 404 },
-    .{ .text = "world" },
-  };
+    const messages = [3]Message{
+        .{ .text = "hello" },
+        .{ .code = 404 },
+        .{ .text = "world" },
+    };
 
-  try testMerging(messages);
+    try testMerging(messages);
 }
 
 test "pointer and optional abuse" {
-  const Point = struct { x: i32, y: i32 };
-  const PointerAbuse = struct {
-    a: ?*const Point,
-    b: *const ?Point,
-    c: ?*const ?Point,
-    d: []const ?*const ?Point,
-  };
+    const Point = struct { x: i32, y: i32 };
+    const PointerAbuse = struct {
+        a: ?*const Point,
+        b: *const ?Point,
+        c: ?*const ?Point,
+        d: []const ?*const ?Point,
+    };
 
-  const p1: Point = .{ .x = 1, .y = 1 };
-  const p2: ?Point = .{ .x = 2, .y = 2 };
-  const p3: ?Point = null;
+    const p1: Point = .{ .x = 1, .y = 1 };
+    const p2: ?Point = .{ .x = 2, .y = 2 };
+    const p3: ?Point = null;
 
-  const value = PointerAbuse{
-    .a = &p1,
-    .b = &p2,
-    .c = &p2,
-    .d = &.{ &p2, null, &p3 },
-  };
+    const value = PointerAbuse{
+        .a = &p1,
+        .b = &p2,
+        .c = &p2,
+        .d = &.{ &p2, null, &p3 },
+    };
 
-  try testMerging(value);
+    try testMerging(value);
 }
 
 test "deeply nested struct with one dynamic field at the end" {
-  const Level4 = struct {
-    data: []const u8,
-  };
-  const Level3 = struct {
-    l4: Level4,
-  };
-  const Level2 = struct {
-    l3: Level3,
-    val: u64,
-  };
-  const Level1 = struct {
-    l2: Level2,
-  };
+    const Level4 = struct {
+        data: []const u8,
+    };
+    const Level3 = struct {
+        l4: Level4,
+    };
+    const Level2 = struct {
+        l3: Level3,
+        val: u64,
+    };
+    const Level1 = struct {
+        l2: Level2,
+    };
 
-  const value = Level1{
-    .l2 = .{
-      .l3 = .{
-        .l4 = .{
-          .data = "we need to go deeper",
+    const value = Level1{
+        .l2 = .{
+            .l3 = .{
+                .l4 = .{
+                    .data = "we need to go deeper",
+                },
+            },
+            .val = 99,
         },
-      },
-      .val = 99,
-    },
-  };
-  try testMerging(value);
+    };
+    try testMerging(value);
 }
 
 test "slice of structs with dynamic fields" {
-  const LogEntry = struct {
-    timestamp: u64,
-    message: []const u8,
-  };
-  const entries = [_]LogEntry{
-    .{ .timestamp = 1, .message = "first entry" },
-    .{ .timestamp = 2, .message = "" },
-    .{ .timestamp = 3, .message = "third entry has a much longer message to test buffer allocation" },
-  };
+    const LogEntry = struct {
+        timestamp: u64,
+        message: []const u8,
+    };
+    const entries = [_]LogEntry{
+        .{ .timestamp = 1, .message = "first entry" },
+        .{ .timestamp = 2, .message = "" },
+        .{ .timestamp = 3, .message = "third entry has a much longer message to test buffer allocation" },
+    };
 
-  try testMerging(entries[0..]);
+    try testMerging(entries[0..]);
 }
 
 test "struct with multiple, non-contiguous dynamic fields" {
-  const UserProfile = struct {
-    username: []const u8,
-    user_id: u64,
-    bio: []const u8,
-    karma: i32,
-    avatar_url: []const u8,
-  };
+    const UserProfile = struct {
+        username: []const u8,
+        user_id: u64,
+        bio: []const u8,
+        karma: i32,
+        avatar_url: []const u8,
+    };
 
-  const user = UserProfile{
-    .username = "zigger",
-    .user_id = 1234,
-    .bio = "Loves comptime and robust software.",
-    .karma = 9999,
-    .avatar_url = "http://ziglang.org/logo.svg",
-  };
+    const user = UserProfile{
+        .username = "zigger",
+        .user_id = 1234,
+        .bio = "Loves comptime and robust software.",
+        .karma = 9999,
+        .avatar_url = "http://ziglang.org/logo.svg",
+    };
 
-  try testMerging(user);
+    try testMerging(user);
 }
 
 test "union with multiple dynamic fields" {
-  const Packet = union(enum) {
-    message: []const u8,
-    points: []const struct { x: f32, y: f32 },
-    code: u32,
-  };
+    const Packet = union(enum) {
+        message: []const u8,
+        points: []const struct { x: f32, y: f32 },
+        code: u32,
+    };
 
-  try testMerging(Packet{ .message = "hello world" });
-  try testMerging(Packet{ .points = &.{ .{ .x = 1.0, .y = 2.0 }, .{ .x = 3.0, .y = 4.0 } } });
-  try testMerging(Packet{ .code = 404 });
+    try testMerging(Packet{ .message = "hello world" });
+    try testMerging(Packet{ .points = &.{ .{ .x = 1.0, .y = 2.0 }, .{ .x = 3.0, .y = 4.0 } } });
+    try testMerging(Packet{ .code = 404 });
 }
 
 test "advanced zero-sized type handling" {
-  const ZstContainer = struct {
-    zst1: void,
-    zst2: [0]u8,
-    data: []const u8, // This is the only thing that should take space
-  };
-  try testMerging(ZstContainer{ .zst1 = {}, .zst2 = .{}, .data = "hello" });
+    const ZstContainer = struct {
+        zst1: void,
+        zst2: [0]u8,
+        data: []const u8, // This is the only thing that should take space
+    };
+    try testMerging(ZstContainer{ .zst1 = {}, .zst2 = .{}, .data = "hello" });
 
-  const ZstSliceContainer = struct {
-    id: u32,
-    zst_slice: []const void,
-  };
+    const ZstSliceContainer = struct {
+        id: u32,
+        zst_slice: []const void,
+    };
 
-  try testMerging(ZstSliceContainer{ .id = 99, .zst_slice = &.{ {}, {}, {} } });
+    try testMerging(ZstSliceContainer{ .id = 99, .zst_slice = &.{ {}, {}, {} } });
 }
 
 test "deep optional and pointer nesting" {
-  const DeepOptional = struct {
-    val: ??*const u32,
-  };
+    const DeepOptional = struct {
+        val: ??*const u32,
+    };
 
-  const x: u32 = 123;
+    const x: u32 = 123;
 
-  // Fully valued
-  try testMerging(DeepOptional{ .val = &x });
+    // Fully valued
+    try testMerging(DeepOptional{ .val = &x });
 
-  // Inner pointer is null
-  try testMerging(DeepOptional{ .val = @as(?*const u32, null) });
+    // Inner pointer is null
+    try testMerging(DeepOptional{ .val = @as(?*const u32, null) });
 
-  // Outer optional is null
-  try testMerging(DeepOptional{ .val = @as(??*const u32, null) });
+    // Outer optional is null
+    try testMerging(DeepOptional{ .val = @as(??*const u32, null) });
 }
 
 test "recursion limit with dereference" {
-  const Node = struct {
-    payload: u32,
-    next: ?*const @This(),
-  };
+    const Node = struct {
+        payload: u32,
+        next: ?*const @This(),
+    };
 
-  const n3 = Node{ .payload = 3, .next = null };
-  const n2 = Node{ .payload = 2, .next = &n3 };
-  const n1 = Node{ .payload = 1, .next = &n2 };
+    const n3 = Node{ .payload = 3, .next = null };
+    const n2 = Node{ .payload = 2, .next = &n3 };
+    const n1 = Node{ .payload = 1, .next = &n2 };
 
-  // This should only serialize n1 and the pointer to n2.
-  // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
-  try testMergingDemerging(n1, .{});
+    // This should only serialize n1 and the pointer to n2.
+    // The `write` for n2 will hit the dereference limit and treat it as a direct (raw pointer) value.
+    try testMergingDemerging(n1, .{});
 }
 
 test "recursive type merging" {
-  const Node = struct {
-    payload: u32,
-    next: ?*const @This(),
-  };
+    const Node = struct {
+        payload: u32,
+        next: ?*const @This(),
+    };
 
-  const n4 = Node{ .payload = 4, .next = null };
-  const n3 = Node{ .payload = 3, .next = &n4 };
-  const n2 = Node{ .payload = 2, .next = &n3 };
-  const n1 = Node{ .payload = 1, .next = &n2 };
+    const n4 = Node{ .payload = 4, .next = null };
+    const n3 = Node{ .payload = 3, .next = &n4 };
+    const n2 = Node{ .payload = 2, .next = &n3 };
+    const n1 = Node{ .payload = 1, .next = &n2 };
 
-  try testMergingDemerging(n1, .{});
+    try testMergingDemerging(n1, .{});
 }
 
 test "mutual recursion" {
-  const Namespace = struct {
-    const NodeA = struct {
-      name: []const u8,
-      b: ?*const NodeB,
+    const Namespace = struct {
+        const NodeA = struct {
+            name: []const u8,
+            b: ?*const NodeB,
+        };
+        const NodeB = struct {
+            value: u32,
+            a: ?*const NodeA,
+        };
     };
-    const NodeB = struct {
-      value: u32,
-      a: ?*const NodeA,
-    };
-  };
 
-  const NodeA = Namespace.NodeA;
-  const NodeB = Namespace.NodeB;
+    const NodeA = Namespace.NodeA;
+    const NodeB = Namespace.NodeB;
 
-  // Create a linked list: a1 -> b1 -> a2 -> null
-  const a2 = NodeA{ .name = "a2", .b = null };
-  const b1 = NodeB{ .value = 100, .a = &a2 };
-  const a1 = NodeA{ .name = "a1", .b = &b1 };
+    // Create a linked list: a1 -> b1 -> a2 -> null
+    const a2 = NodeA{ .name = "a2", .b = null };
+    const b1 = NodeB{ .value = 100, .a = &a2 };
+    const a1 = NodeA{ .name = "a1", .b = &b1 };
 
-  try testMergingDemerging(a1, .{});
+    try testMergingDemerging(a1, .{});
 }
 
 test "deeply nested, mutually recursive structures with no data cycles" {
-  const Namespace = struct {
-    const MegaStructureA = struct {
-      id: u32,
-      description: []const u8,
-      next: ?*const @This(), // Direct recursion: A -> A
-      child_b: *const NodeB, // Mutual recursion: A -> B
+    const Namespace = struct {
+        const MegaStructureA = struct {
+            id: u32,
+            description: []const u8,
+            next: ?*const @This(), // Direct recursion: A -> A
+            child_b: *const NodeB, // Mutual recursion: A -> B
+        };
+
+        const NodeB = struct {
+            value: f64,
+            relatives: [2]?*const @This(), // Direct recursion: B -> [2]B
+            next_a: ?*const MegaStructureA, // Mutual recursion: B -> A
+            leaf: ?*const LeafNode, // Points to a simple terminal node
+        };
+
+        const LeafNode = struct {
+            data: []const u8,
+        };
     };
 
-    const NodeB = struct {
-      value: f64,
-      relatives: [2]?*const @This(), // Direct recursion: B -> [2]B
-      next_a: ?*const MegaStructureA, // Mutual recursion: B -> A
-      leaf: ?*const LeafNode, // Points to a simple terminal node
+    const MegaStructureA = Namespace.MegaStructureA;
+    const NodeB = Namespace.NodeB;
+    const LeafNode = Namespace.LeafNode;
+
+    const leaf1 = LeafNode{ .data = "Leaf Node One" };
+    const leaf2 = LeafNode{ .data = "Leaf Node Two" };
+
+    const b_leaf_1 = NodeB{
+        .value = 1.1,
+        .next_a = null,
+        .relatives = .{ null, null },
+        .leaf = &leaf1,
+    };
+    const b_leaf_2 = NodeB{
+        .value = 2.2,
+        .next_a = null,
+        .relatives = .{ null, null },
+        .leaf = &leaf2,
     };
 
-    const LeafNode = struct {
-      data: []const u8,
+    const a_intermediate = MegaStructureA{
+        .id = 100,
+        .description = "Intermediate A",
+        .next = null, // Terminates this A-chain
+        .child_b = &b_leaf_1,
     };
-  };
 
-  const MegaStructureA = Namespace.MegaStructureA;
-  const NodeB = Namespace.NodeB;
-  const LeafNode = Namespace.LeafNode;
+    const b_middle = NodeB{
+        .value = 3.3,
+        .next_a = &a_intermediate,
+        .relatives = .{ &b_leaf_1, &b_leaf_2 },
+        .leaf = null,
+    };
 
-  const leaf1 = LeafNode{ .data = "Leaf Node One" };
-  const leaf2 = LeafNode{ .data = "Leaf Node Two" };
+    const a_before_root = MegaStructureA{
+        .id = 200,
+        .description = "Almost Root A",
+        .next = null,
+        .child_b = &b_leaf_2,
+    };
 
-  const b_leaf_1 = NodeB{
-    .value = 1.1,
-    .next_a = null,
-    .relatives = .{ null, null },
-    .leaf = &leaf1,
-  };
-  const b_leaf_2 = NodeB{
-    .value = 2.2,
-    .next_a = null,
-    .relatives = .{ null, null },
-    .leaf = &leaf2,
-  };
+    const root_node = MegaStructureA{
+        .id = 1,
+        .description = "The Root",
+        .next = &a_before_root,
+        .child_b = &b_middle,
+    };
 
-  const a_intermediate = MegaStructureA{
-    .id = 100,
-    .description = "Intermediate A",
-    .next = null, // Terminates this A-chain
-    .child_b = &b_leaf_1,
-  };
-
-  const b_middle = NodeB{
-    .value = 3.3,
-    .next_a = &a_intermediate,
-    .relatives = .{ &b_leaf_1, &b_leaf_2 },
-    .leaf = null,
-  };
-
-  const a_before_root = MegaStructureA{
-    .id = 200,
-    .description = "Almost Root A",
-    .next = null,
-    .child_b = &b_leaf_2,
-  };
-
-  const root_node = MegaStructureA{
-    .id = 1,
-    .description = "The Root",
-    .next = &a_before_root,
-    .child_b = &b_middle,
-  };
-
-  try testMergingDemerging(root_node, .{});
+    try testMergingDemerging(root_node, .{});
 }
 
 const Wrapper = root.Wrapper;
 
 test "Wrapper init, get, and deinit" {
-  const Point = struct { x: i32, y: []const u8 };
-  var wrapped_point = try Wrapper(Point, .{}).init(&.{ .x = 42, .y = "hello" }, testing.allocator);
-  defer wrapped_point.deinit(testing.allocator);
+    const Point = struct { x: i32, y: []const u8 };
+    var wrapped_point = try Wrapper(Point, .{}).init(&.{ .x = 42, .y = "hello" }, testing.allocator);
+    defer wrapped_point.deinit(testing.allocator);
 
-  const p = wrapped_point.get();
-  try expectEqual(@as(i32, 42), p.x);
-  try std.testing.expectEqualStrings("hello", p.y);
+    const p = wrapped_point.get();
+    try expectEqual(@as(i32, 42), p.x);
+    try std.testing.expectEqualStrings("hello", p.y);
 }
 
 test "Wrapper clone" {
-  const Data = struct { id: u32, items: []const u32 };
-  var wrapped1 = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{ 10, 20, 30 } }, testing.allocator);
-  defer wrapped1.deinit(testing.allocator);
+    const Data = struct { id: u32, items: []const u32 };
+    var wrapped1 = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{ 10, 20, 30 } }, testing.allocator);
+    defer wrapped1.deinit(testing.allocator);
 
-  var wrapped2 = try wrapped1.clone(testing.allocator);
-  defer wrapped2.deinit(testing.allocator);
+    var wrapped2 = try wrapped1.clone(testing.allocator);
+    defer wrapped2.deinit(testing.allocator);
 
-  try testing.expect(wrapped1.memory.ptr != wrapped2.memory.ptr);
+    try testing.expect(wrapped1.memory.ptr != wrapped2.memory.ptr);
 
-  const d1 = wrapped1.get();
-  const d2 = wrapped2.get();
-  try expectEqual(d1.id, d2.id);
-  try std.testing.expectEqualSlices(u32, d1.items, d2.items);
+    const d1 = wrapped1.get();
+    const d2 = wrapped2.get();
+    try expectEqual(d1.id, d2.id);
+    try std.testing.expectEqualSlices(u32, d1.items, d2.items);
 
-  wrapped1.get().id = 99;
-  try expectEqual(@as(u32, 99), wrapped1.get().id);
-  try expectEqual(@as(u32, 1), wrapped2.get().id);
+    wrapped1.get().id = 99;
+    try expectEqual(@as(u32, 99), wrapped1.get().id);
+    try expectEqual(@as(u32, 1), wrapped2.get().id);
 }
 
 test "Wrapper set" {
-  const Data = struct { id: u32, items: []const u32 };
-  var wrapped = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{10} }, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    const Data = struct { id: u32, items: []const u32 };
+    var wrapped = try Wrapper(Data, .{}).init(&.{ .id = 1, .items = &.{10} }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  // Set to a larger value
-  try wrapped.set(testing.allocator, &.{ .id = 2, .items = &.{ 20, 30, 40 } });
-  var d = wrapped.get();
-  try expectEqual(@as(u32, 2), d.id);
-  try std.testing.expectEqualSlices(u32, &.{ 20, 30, 40 }, d.items);
+    // Set to a larger value
+    try wrapped.set(testing.allocator, &.{ .id = 2, .items = &.{ 20, 30, 40 } });
+    var d = wrapped.get();
+    try expectEqual(@as(u32, 2), d.id);
+    try std.testing.expectEqualSlices(u32, &.{ 20, 30, 40 }, d.items);
 
-  // Set to a smaller value
-  try wrapped.set(testing.allocator, &.{ .id = 3, .items = &.{50} });
-  d = wrapped.get();
-  try expectEqual(@as(u32, 3), d.id);
-  try std.testing.expectEqualSlices(u32, &.{50}, d.items);
+    // Set to a smaller value
+    try wrapped.set(testing.allocator, &.{ .id = 3, .items = &.{50} });
+    d = wrapped.get();
+    try expectEqual(@as(u32, 3), d.id);
+    try std.testing.expectEqualSlices(u32, &.{50}, d.items);
 }
 
 test "Wrapper repointer" {
-  const LogEntry = struct {
-    timestamp: u64,
-    message: []const u8,
-  };
+    const LogEntry = struct {
+        timestamp: u64,
+        message: []const u8,
+    };
 
-  var wrapped = try Wrapper(LogEntry, .{}).init(&.{ .timestamp = 12345, .message = "initial message" }, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try Wrapper(LogEntry, .{}).init(&.{ .timestamp = 12345, .message = "initial message" }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  // Manually move the memory to a new buffer (like reading from a file etc.)
-  const new_buffer = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(@TypeOf(wrapped.memory))), wrapped.memory.len);
-  @memcpy(new_buffer, wrapped.memory);
+    // Manually move the memory to a new buffer (like reading from a file etc.)
+    const new_buffer = try testing.allocator.alignedAlloc(u8, .fromByteUnits(@alignOf(@TypeOf(wrapped.memory))), wrapped.memory.len);
+    @memcpy(new_buffer, wrapped.memory);
 
-  // free the old memory and update the wrapper's memory slice
-  testing.allocator.free(wrapped.memory);
-  wrapped.memory = new_buffer;
+    // free the old memory and update the wrapper's memory slice
+    testing.allocator.free(wrapped.memory);
+    wrapped.memory = new_buffer;
 
-  // internal pointers are now invalid
-  wrapped.repointer();
+    // internal pointers are now invalid
+    wrapped.repointer();
 
-  // Verify that data is correct and pointers are valid
-  const entry = wrapped.get();
-  try testing.expectEqual(@as(u64, 12345), entry.timestamp);
-  try testing.expectEqualStrings("initial message", entry.message);
+    // Verify that data is correct and pointers are valid
+    const entry = wrapped.get();
+    try testing.expectEqual(@as(u64, 12345), entry.timestamp);
+    try testing.expectEqualStrings("initial message", entry.message);
 
-  // ensure the slice pointer points inside the *new* buffer
-  const memory_start = @intFromPtr(wrapped.memory.ptr);
-  const memory_end = memory_start + wrapped.memory.len;
-  const slice_start = @intFromPtr(entry.message.ptr);
-  const slice_end = slice_start + entry.message.len;
-  try testing.expect(slice_start >= memory_start and slice_end <= memory_end);
+    // ensure the slice pointer points inside the *new* buffer
+    const memory_start = @intFromPtr(wrapped.memory.ptr);
+    const memory_end = memory_start + wrapped.memory.len;
+    const slice_start = @intFromPtr(entry.message.ptr);
+    const slice_end = slice_start + entry.message.len;
+    try testing.expect(slice_start >= memory_start and slice_end <= memory_end);
 }
 
 test "serialization_functions: unknown pointers as usize" {
-  const S = struct { ptr: [*]u8 };
-  var dummy: u8 = 0;
-  const val = S{ .ptr = @ptrCast(&dummy) };
+    const S = struct { ptr: [*]u8 };
+    var dummy: u8 = 0;
+    const val = S{ .ptr = @ptrCast(&dummy) };
 
-  try testMergingDemerging(val, .{ .serialize_unknown_pointer_as_usize = true });
+    try testMergingDemerging(val, .{ .serialize_unknown_pointer_as_usize = true });
 }
 
 test "serialization_functions: opaque with signature" {
-  const MyT = u32;
-  const MyMergedOpaque = opaque {
-    pub const Underlying = SF.MergedSignature{ .T = MyT, ._align = .@"4" };
-    pub const STATIC = true;
-    pub fn write(_: *MyT, _: *SF.Dynamic) void {}
-    pub fn addDynamicSize(_: *const MyT, _: *usize) void {}
-    pub fn repointer(_: *MyT, _: *SF.Dynamic) void {}
-  };
+    const MyT = u32;
+    const MyMergedOpaque = opaque {
+        pub const Underlying = SF.MergedSignature{ .T = MyT, ._align = .@"4" };
+        pub const STATIC = true;
+        pub fn write(_: *MyT, _: *SF.Dynamic) void {}
+        pub fn addDynamicSize(_: *const MyT, _: *usize) void {}
+        pub fn repointer(_: *MyT, _: *SF.Dynamic) void {}
+    };
 
-  const context = Context.init(MyMergedOpaque, .{}, ToMergedT);
-  try testing.expect(context == MyMergedOpaque);
+    const context = Context.init(MyMergedOpaque, .{}, ToMergedT);
+    try testing.expect(context == MyMergedOpaque);
 }
 
 test "serialization_functions: alignment sorting in structs" {
-  const val = struct {
-    a: []const u8, // align 1
-    b: []const u32, // align 4
-    c: []const u64, // align 8
-  }{
-    .a = "1",
-    .b = &.{1},
-    .c = &.{1},
-  };
+    const val = struct {
+        a: []const u8, // align 1
+        b: []const u32, // align 4
+        c: []const u64, // align 8
+    }{
+        .a = "1",
+        .b = &.{1},
+        .c = &.{1},
+    };
 
-  try testMerging(val);
+    try testMerging(val);
 }
 
 test "serialization_functions: error union with dynamic payload" {
-  const MyError = error{Failure};
-  const S = struct { data: MyError![]const u8 };
+    const MyError = error{Failure};
+    const S = struct { data: MyError![]const u8 };
 
-  try testMerging(S{ .data = "payload" });
-  try testMerging(S{ .data = MyError.Failure });
+    try testMerging(S{ .data = "payload" });
+    try testMerging(S{ .data = MyError.Failure });
 }
 
 test "meta: Mem utility functions" {
-  var buf: [64]u8 align(16) = undefined;
-  var mem = SF.Dynamic.init(&buf);
+    var buf: [64]u8 align(16) = undefined;
+    var mem = SF.Dynamic.init(&buf);
 
-  const sub_mem = mem.from(16);
-  try testing.expect(@intFromPtr(sub_mem.ptr) == @intFromPtr(mem.ptr) + 16);
+    const sub_mem = mem.from(16);
+    try testing.expect(@intFromPtr(sub_mem.ptr) == @intFromPtr(mem.ptr) + 16);
 
-  const unaligned = mem.from(1);
-  const realigned = unaligned.alignForward(8);
-  try testing.expect(std.mem.isAligned(@intFromPtr(realigned.ptr), 8));
+    const unaligned = mem.from(1);
+    const realigned = unaligned.alignForward(8);
+    try testing.expect(std.mem.isAligned(@intFromPtr(realigned.ptr), 8));
 
-  _ = mem.assertAligned(16);
+    _ = mem.assertAligned(16);
 
-  var out_buf: std.ArrayList(u8) = .empty;
-  defer out_buf.deinit(testing.allocator);
+    var out_buf: std.ArrayList(u8) = .empty;
+    defer out_buf.deinit(testing.allocator);
 
-  try out_buf.writer(testing.allocator).print("{f}", .{mem});
-  try testing.expect(out_buf.items.len > 0);
+    try out_buf.print(testing.allocator, "{f}", .{mem});
+    try testing.expect(out_buf.items.len > 0);
 }
 
 test "meta: Context helpers" {
-  const options1 = MergeOptions{ .deslice = false };
-  const options2 = MergeOptions{ .deslice = true };
-  const ctx = Context{
-    .Type = u32,
-    .options = options1,
-    .merge_fn = ToMergedT,
-  };
+    const options1 = MergeOptions{ .deslice = false };
+    const options2 = MergeOptions{ .deslice = true };
+    const ctx = Context{
+        .Type = u32,
+        .options = options1,
+    };
 
-  const ctx2 = ctx.reop(options2);
-  try testing.expect(ctx2.options.deslice == true);
+    const ctx2 = ctx.reop(options2);
+    try testing.expect(ctx2.options.deslice == true);
 
-  const ctx3 = ctx.T(f32);
-  try testing.expect(ctx3.Type == f32);
+    const ctx3 = ctx.T(f32);
+    try testing.expect(ctx3.Type == f32);
 }
 
 test "root: DynamicWrapper and DynamicWrapConverted" {
-  const S = struct {
-    name: []const u8,
-    id: u32,
-  };
+    const S = struct {
+        name: []const u8,
+        id: u32,
+    };
 
-  const DynWrap = root.DynamicWrapper(S, .{});
-  var val = S{ .name = "original", .id = 123 };
+    const DynWrap = root.DynamicWrapper(S, .{});
+    var val = S{ .name = "original", .id = 123 };
 
-  var dw = try DynWrap.init(&val, testing.allocator);
-  defer dw.deinit(testing.allocator);
+    var dw = try DynWrap.init(&val, testing.allocator);
+    defer dw.deinit(testing.allocator);
 
-  try testing.expectEqualStrings("original", val.name);
+    try testing.expectEqualStrings("original", val.name);
 
-  const mem_start = @intFromPtr(dw.memory.ptr);
-  const mem_end = mem_start + dw.memory.len;
-  try testing.expect(@intFromPtr(val.name.ptr) >= mem_start);
-  try testing.expect(@intFromPtr(val.name.ptr) < mem_end);
+    const mem_start = @intFromPtr(dw.memory.ptr);
+    const mem_end = mem_start + dw.memory.len;
+    try testing.expect(@intFromPtr(val.name.ptr) >= mem_start);
+    try testing.expect(@intFromPtr(val.name.ptr) < mem_end);
 
-  var val2 = S{ .name = "new name that is longer", .id = 456 };
-  try dw.set(testing.allocator, &val2);
-  try testing.expectEqualStrings("new name that is longer", val2.name);
+    var val2 = S{ .name = "new name that is longer", .id = 456 };
+    try dw.set(testing.allocator, &val2);
+    try testing.expectEqualStrings("new name that is longer", val2.name);
 
-  const val3, var dw2 = try dw.clone(&val2, testing.allocator);
-  defer dw2.deinit(testing.allocator);
-  try testing.expectEqualStrings("new name that is longer", val3.name);
+    const val3, var dw2 = try dw.clone(&val2, testing.allocator);
+    defer dw2.deinit(testing.allocator);
+    try testing.expectEqualStrings("new name that is longer", val3.name);
 }
 
 test "root: DynamicWrapper returns null for static types" {
-  const StaticS = struct { a: u32, b: i32 };
-  const res = root.DynamicWrapper(StaticS, .{});
-  try testing.expect(res == void);
+    const StaticS = struct { a: u32, b: i32 };
+    const res = root.DynamicWrapper(StaticS, .{});
+    try testing.expect(res == void);
 }
 
 test "serialization_functions: alignForward underflow catch" {
-  var buf: [4]u8 align(4) = undefined;
-  const mem = SF.Dynamic.init(&buf);
-  const offset = mem.from(2);
-  _ = offset.alignForward(4);
+    var buf: [4]u8 align(4) = undefined;
+    const mem = SF.Dynamic.init(&buf);
+    const offset = mem.from(2);
+    _ = offset.alignForward(4);
 }
 
 test "serialization_functions: nested deslicing false" {
-  const S = struct { data: []const u8 };
-  const val = S{ .data = "test" };
-  const MergedT = Context.init(S, .{ .deslice = false }, ToMergedT);
-  var size: usize = 0;
-  MergedT.addDynamicSize(&val, &size);
-  try testing.expect(size == 0);
+    const S = struct { data: []const u8 };
+    const val = S{ .data = "test" };
+    const MergedT = Context.init(S, .{ .deslice = false }, ToMergedT);
+    var size: usize = 0;
+    MergedT.addDynamicSize(&val, &size);
+    try testing.expect(size == 0);
 }
 
 test "serialization_functions: depointer false" {
-  const x: u32 = 42;
-  const ptr: *const u32 = &x;
-  const MergedT = Context.init(*const u32, .{ .depointer = false }, ToMergedT);
-  var size: usize = 0;
-  MergedT.addDynamicSize(&ptr, &size);
-  try testing.expect(size == 0);
+    const x: u32 = 42;
+    const ptr: *const u32 = &x;
+    const MergedT = Context.init(*const u32, .{ .depointer = false }, ToMergedT);
+    var size: usize = 0;
+    MergedT.addDynamicSize(&ptr, &size);
+    try testing.expect(size == 0);
 }
 
 test "serialization_functions: nested error unions and optionals" {
-  const Payload = error{Fail}!?[]const u8;
-  const S = struct { p: Payload };
+    const Payload = error{Fail}!?[]const u8;
+    const S = struct { p: Payload };
 
-  try testMerging(S{ .p = @as([]const u8, "nest") });
-  try testMerging(S{ .p = @as(?[]const u8, null) });
-  try testMerging(S{ .p = error.Fail });
+    try testMerging(S{ .p = @as([]const u8, "nest") });
+    try testMerging(S{ .p = @as(?[]const u8, null) });
+    try testMerging(S{ .p = error.Fail });
 }
 
 test "serialization_functions: multi-level pointers (**T)" {
-  const val: u32 = 42;
-  const p1: *const u32 = &val;
-  const p2: *const *const u32 = &p1;
+    const val: u32 = 42;
+    const p1: *const u32 = &val;
+    const p2: *const *const u32 = &p1;
 
-  // recursive GetPointerMergedT
-  try testMergingDemerging(p2, .{ .depointer = true });
+    // recursive GetPointerMergedT
+    try testMergingDemerging(p2, .{ .depointer = true });
 }
 
 test "serialization_functions: union with mixed static and dynamic fields" {
-  const MixedUnion = union(enum) {
-    static: u64,
-    dynamic: []const u8,
-    nested_dynamic: struct { a: []const u32 },
-  };
+    const MixedUnion = union(enum) {
+        static: u64,
+        dynamic: []const u8,
+        nested_dynamic: struct { a: []const u32 },
+    };
 
-  try testMerging(MixedUnion{ .static = 12345 });
-  try testMerging(MixedUnion{ .dynamic = "hello union" });
-  try testMerging(MixedUnion{ .nested_dynamic = .{ .a = &.{ 1, 2, 3 } } });
+    try testMerging(MixedUnion{ .static = 12345 });
+    try testMerging(MixedUnion{ .dynamic = "hello union" });
+    try testMerging(MixedUnion{ .nested_dynamic = .{ .a = &.{ 1, 2, 3 } } });
 }
 
 test "serialization_functions: zero-sized array of dynamic types" {
-  const S = struct {
-    items: [0]struct { s: []const u8 },
-  };
-  // Should be treated as STATIC
-  try testMerging(S{ .items = .{} });
+    const S = struct {
+        items: [0]struct { s: []const u8 },
+    };
+    // Should be treated as STATIC
+    try testMerging(S{ .items = .{} });
 }
 
 test "serialization_functions: alignment stress test" {
-  // A struct that forces padding between dynamic segments
-  const StrictAlign = struct {
-    // align(1)
-    a: []const u8,
-    // align(16) - forces alignForward to jump significantly
-    b: []align(16) const u32,
-    c: u8,
-  };
+    // A struct that forces padding between dynamic segments
+    const StrictAlign = struct {
+        // align(1)
+        a: []const u8,
+        // align(16) - forces alignForward to jump significantly
+        b: []align(16) const u32,
+        c: u8,
+    };
 
-  const val = StrictAlign{
-    .a = "bit",
-    .b = comptime blk: {
-      const retval: [2]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE };
-      break :blk retval[0..];
-    },
-    .c = 1,
-  };
+    const val = StrictAlign{
+        .a = "bit",
+        .b = comptime blk: {
+            const retval: [2]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE };
+            break :blk retval[0..];
+        },
+        .c = 1,
+    };
 
-  try testMerging(val);
+    try testMerging(val);
 }
 
 test "serialization_functions: alignment stress test 2" {
-  // A struct that forces padding between dynamic segments
-  const StrictAlign = struct {
-    // align(1)
-    a: []const u8,
-    // align(16) - forces alignForward to jump significantly
-    b: []align(16) const u32,
-    c: u8,
-  };
+    // A struct that forces padding between dynamic segments
+    const StrictAlign = struct {
+        // align(1)
+        a: []const u8,
+        // align(16) - forces alignForward to jump significantly
+        b: []align(16) const u32,
+        c: u8,
+    };
 
-  const val = StrictAlign{
-    .a = "bit_by_bitset",
-    .b = comptime blk: {
-      const retval: [6]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D, 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D };
-      break :blk retval[0..];
-    },
-    .c = 1,
-  };
+    const val = StrictAlign{
+        .a = "bit_by_bitset",
+        .b = comptime blk: {
+            const retval: [6]u32 align(16) = .{ 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D, 0xDEADBEEF, 0xCAFEBABE, 0xB00BF00D };
+            break :blk retval[0..];
+        },
+        .c = 1,
+    };
 
-  try testMerging(val);
+    try testMerging(val);
 }
 
 test "meta: NonConstPointer with different sizes" {
-  const T = []const u8;
-  const One = meta.NonConstPointer(T, .one);
-  const Slice = meta.NonConstPointer(T, .slice);
+    const T = []const u8;
+    const One = meta.NonConstPointer(T, .one);
+    const Slice = meta.NonConstPointer(T, .slice);
 
-  try testing.expect(@typeInfo(One).pointer.size == .one);
-  try testing.expect(@typeInfo(Slice).pointer.size == .slice);
-  try testing.expect(@typeInfo(One).pointer.is_const == false);
+    try testing.expect(@typeInfo(One).pointer.size == .one);
+    try testing.expect(@typeInfo(Slice).pointer.size == .slice);
+    try testing.expect(@typeInfo(One).pointer.is_const == false);
 }
 
 test "root: Wrapper.set with exact same size (remap path)" {
-  const S = struct { a: []const u8 };
-  var wrapped = try Wrapper(S, .{}).init(&.{ .a = "old" }, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    const S = struct { a: []const u8 };
+    var wrapped = try Wrapper(S, .{}).init(&.{ .a = "old" }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  try wrapped.set(testing.allocator, &.{ .a = "new" });
-  try testing.expectEqualSlices(u8, "new", wrapped.get().a);
+    try wrapped.set(testing.allocator, &.{ .a = "new" });
+    try testing.expectEqualSlices(u8, "new", wrapped.get().a);
 }
 
 test "serialization_functions: vector types" {
-  const v: @Vector(4, f32) = .{ 1.1, 2.2, 3.3, 4.4 };
-  try testMerging(v);
+    const v: @Vector(4, f32) = .{ 1.1, 2.2, 3.3, 4.4 };
+    try testMerging(v);
 }
 
 test "serialization_functions: recursive structs with multiple paths" {
-  const Node = struct {
-    child_a: ?*const @This(),
-    child_b: ?*const @This(),
-    data: u32,
-  };
+    const Node = struct {
+        child_a: ?*const @This(),
+        child_b: ?*const @This(),
+        data: u32,
+    };
 
-  const leaf = Node{ .child_a = null, .child_b = null, .data = 100 };
-  const root_node = Node{
-    .child_a = &leaf,
-    .child_b = &leaf,
-    .data = 200,
-  };
+    const leaf = Node{ .child_a = null, .child_b = null, .data = 100 };
+    const root_node = Node{
+        .child_a = &leaf,
+        .child_b = &leaf,
+        .data = 200,
+    };
 
-  try testMerging(root_node);
+    try testMerging(root_node);
 }
 
 test "serialization_functions: context reop and realign" {
-  const options = MergeOptions{ .deslice = false };
-  const ctx = Context{
-    .Type = u32,
-    .options = options,
-    .merge_fn = ToMergedT,
-  };
+    const options = MergeOptions{ .deslice = false };
+    const ctx = Context{
+        .Type = u32,
+        .options = options,
+    };
 
-  const ctx_new = ctx.reop(.{ .deslice = true });
-  try testing.expect(ctx.options.deslice == false);
-  try testing.expect(ctx_new.options.deslice == true);
+    const ctx_new = ctx.reop(.{ .deslice = true });
+    try testing.expect(ctx.options.deslice == false);
+    try testing.expect(ctx_new.options.deslice == true);
 }
 
 fn testWrapperSetAllocationFailurePath(allocator: std.mem.Allocator) !void {
-  const S = struct {
-    id: u32,
-    data: []const u8,
-  };
+    const S = struct {
+        id: u32,
+        data: []const u8,
+    };
 
-  var wrapped = try Wrapper(S, .{}).init(&.{ .id = 1, .data = "x" }, allocator);
-  defer wrapped.deinit(allocator);
+    var wrapped = try Wrapper(S, .{}).init(&.{ .id = 1, .data = "x" }, allocator);
+    defer wrapped.deinit(allocator);
 
-  const next = S{
-    .id = 2,
-    .data = "this payload is intentionally much larger than the previous payload",
-  };
-  try wrapped.set(allocator, &next);
+    const next = S{
+        .id = 2,
+        .data = "this payload is intentionally much larger than the previous payload",
+    };
+    try wrapped.set(allocator, &next);
 
-  try testing.expectEqual(@as(u32, 2), wrapped.get().id);
-  try testing.expectEqualStrings(next.data, wrapped.get().data);
+    try testing.expectEqual(@as(u32, 2), wrapped.get().id);
+    try testing.expectEqualStrings(next.data, wrapped.get().data);
 }
 
 fn testDynamicWrapperSetAllocationFailurePath(allocator: std.mem.Allocator) !void {
-  const S = struct {
-    name: []const u8,
-    id: u32,
-  };
-  const DynWrap = root.DynamicWrapper(S, .{});
+    const S = struct {
+        name: []const u8,
+        id: u32,
+    };
+    const DynWrap = root.DynamicWrapper(S, .{});
 
-  var original = S{ .name = "tiny", .id = 1 };
-  var wrapped = try DynWrap.init(&original, allocator);
-  defer wrapped.deinit(allocator);
+    var original = S{ .name = "tiny", .id = 1 };
+    var wrapped = try DynWrap.init(&original, allocator);
+    defer wrapped.deinit(allocator);
 
-  var next = S{
-    .name = "this payload is intentionally much larger than the previous payload",
-    .id = 2,
-  };
-  try wrapped.set(allocator, &next);
+    var next = S{
+        .name = "this payload is intentionally much larger than the previous payload",
+        .id = 2,
+    };
+    try wrapped.set(allocator, &next);
 
-  try testing.expectEqual(@as(u32, 2), next.id);
-  try testing.expectEqualStrings("this payload is intentionally much larger than the previous payload", next.name);
+    try testing.expectEqual(@as(u32, 2), next.id);
+    try testing.expectEqualStrings("this payload is intentionally much larger than the previous payload", next.name);
 }
 
 test "root: Wrapper.set is allocation-failure safe" {
-  try testing.checkAllAllocationFailures(testing.allocator, testWrapperSetAllocationFailurePath, .{});
+    try testing.checkAllAllocationFailures(testing.allocator, testWrapperSetAllocationFailurePath, .{});
 }
 
 test "root: DynamicWrapper.set is allocation-failure safe" {
-  try testing.checkAllAllocationFailures(testing.allocator, testDynamicWrapperSetAllocationFailurePath, .{});
+    try testing.checkAllAllocationFailures(testing.allocator, testDynamicWrapperSetAllocationFailurePath, .{});
 }
 
 test "pointer alias topology: depointer duplicates shared pointees" {
-  const S = struct {
-    a: *const u32,
-    b: *const u32,
-  };
+    const S = struct {
+        a: *const u32,
+        b: *const u32,
+    };
 
-  var value: u32 = 123;
-  const input = S{ .a = &value, .b = &value };
+    var value: u32 = 123;
+    const input = S{ .a = &value, .b = &value };
 
-  var wrapped = try Wrapper(S, .{}).init(&input, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try Wrapper(S, .{}).init(&input, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  const out = wrapped.get();
-  try testing.expect(out.a != out.b);
-  try testing.expectEqual(out.a.*, out.b.*);
+    const out = wrapped.get();
+    try testing.expect(out.a != out.b);
+    try testing.expectEqual(out.a.*, out.b.*);
 }
 
 test "pointer alias topology: depointer=false preserves raw pointer identity" {
-  const S = struct {
-    a: *const u32,
-    b: *const u32,
-  };
+    const S = struct {
+        a: *const u32,
+        b: *const u32,
+    };
 
-  var value: u32 = 321;
-  const input = S{ .a = &value, .b = &value };
+    var value: u32 = 321;
+    const input = S{ .a = &value, .b = &value };
 
-  var wrapped = try Wrapper(S, .{ .depointer = false }).init(&input, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try Wrapper(S, .{ .depointer = false }).init(&input, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  const out = wrapped.get();
-  try testing.expect(out.a == &value);
-  try testing.expect(out.b == &value);
-  try testing.expect(out.a == out.b);
+    const out = wrapped.get();
+    try testing.expect(out.a == &value);
+    try testing.expect(out.b == &value);
+    try testing.expect(out.a == out.b);
 }
 
 test "recursive stress: self-recursive acyclic graph with set and clone" {
-  const Node = struct {
-    id: u32,
-    label: []const u8,
-    next: ?*const @This(),
-    jump: ?*const @This(),
-  };
+    const Node = struct {
+        id: u32,
+        label: []const u8,
+        next: ?*const @This(),
+        jump: ?*const @This(),
+    };
 
-  const n5 = Node{ .id = 5, .label = "n5", .next = null, .jump = null };
-  const n4 = Node{ .id = 4, .label = "n4", .next = &n5, .jump = null };
-  const n3 = Node{ .id = 3, .label = "n3", .next = &n4, .jump = &n5 };
-  const n2 = Node{ .id = 2, .label = "n2", .next = &n3, .jump = &n4 };
-  const n1 = Node{ .id = 1, .label = "n1", .next = &n2, .jump = &n5 };
+    const n5 = Node{ .id = 5, .label = "n5", .next = null, .jump = null };
+    const n4 = Node{ .id = 4, .label = "n4", .next = &n5, .jump = null };
+    const n3 = Node{ .id = 3, .label = "n3", .next = &n4, .jump = &n5 };
+    const n2 = Node{ .id = 2, .label = "n2", .next = &n3, .jump = &n4 };
+    const n1 = Node{ .id = 1, .label = "n1", .next = &n2, .jump = &n5 };
 
-  try testMergingDemerging(n1, .{});
+    try testMergingDemerging(n1, .{});
 
-  var wrapped = try Wrapper(Node, .{}).init(&n1, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try Wrapper(Node, .{}).init(&n1, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  var cloned = try wrapped.clone(testing.allocator);
-  defer cloned.deinit(testing.allocator);
-  try expectEqual(wrapped.get(), cloned.get());
+    var cloned = try wrapped.clone(testing.allocator);
+    defer cloned.deinit(testing.allocator);
+    try expectEqual(wrapped.get(), cloned.get());
 
-  const m3 = Node{ .id = 30, .label = "m3", .next = null, .jump = null };
-  const m2 = Node{ .id = 20, .label = "m2", .next = &m3, .jump = null };
-  const m1 = Node{ .id = 10, .label = "m1", .next = &m2, .jump = &m3 };
+    const m3 = Node{ .id = 30, .label = "m3", .next = null, .jump = null };
+    const m2 = Node{ .id = 20, .label = "m2", .next = &m3, .jump = null };
+    const m1 = Node{ .id = 10, .label = "m1", .next = &m2, .jump = &m3 };
 
-  try wrapped.set(testing.allocator, &m1);
-  try expectEqual(&m1, wrapped.get());
+    try wrapped.set(testing.allocator, &m1);
+    try expectEqual(&m1, wrapped.get());
 }
 
 test "recursive stress: mutually recursive acyclic graph survives repeated repointer" {
-  const Namespace = struct {
-    const NodeA = struct {
-      id: u32,
-      name: []const u8,
-      next: ?*const @This(),
-      buddy: ?*const NodeB,
+    const Namespace = struct {
+        const NodeA = struct {
+            id: u32,
+            name: []const u8,
+            next: ?*const @This(),
+            buddy: ?*const NodeB,
+        };
+        const NodeB = struct {
+            score: u64,
+            note: []const u8,
+            next: ?*const @This(),
+            owner: ?*const NodeA,
+        };
     };
-    const NodeB = struct {
-      score: u64,
-      note: []const u8,
-      next: ?*const @This(),
-      owner: ?*const NodeA,
-    };
-  };
 
-  const NodeA = Namespace.NodeA;
-  const NodeB = Namespace.NodeB;
-  const WrappedA = Wrapper(NodeA, .{});
+    const NodeA = Namespace.NodeA;
+    const NodeB = Namespace.NodeB;
+    const WrappedA = Wrapper(NodeA, .{});
 
-  const a3 = NodeA{ .id = 3, .name = "a3", .next = null, .buddy = null };
-  const b2 = NodeB{ .score = 200, .note = "b2", .next = null, .owner = &a3 };
-  const a2 = NodeA{ .id = 2, .name = "a2", .next = &a3, .buddy = &b2 };
-  const b1 = NodeB{ .score = 100, .note = "b1", .next = &b2, .owner = &a2 };
-  const a1 = NodeA{ .id = 1, .name = "a1", .next = &a2, .buddy = &b1 };
+    const a3 = NodeA{ .id = 3, .name = "a3", .next = null, .buddy = null };
+    const b2 = NodeB{ .score = 200, .note = "b2", .next = null, .owner = &a3 };
+    const a2 = NodeA{ .id = 2, .name = "a2", .next = &a3, .buddy = &b2 };
+    const b1 = NodeB{ .score = 100, .note = "b1", .next = &b2, .owner = &a2 };
+    const a1 = NodeA{ .id = 1, .name = "a1", .next = &a2, .buddy = &b1 };
 
-  try testMergingDemerging(a1, .{});
+    try testMergingDemerging(a1, .{});
 
-  var wrapped = try WrappedA.init(&a1, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try WrappedA.init(&a1, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  for (0..4) |_| {
-    const moved = try testing.allocator.alignedAlloc(u8, WrappedA.alignment, wrapped.memory.len);
-    @memcpy(moved, wrapped.memory);
-    testing.allocator.free(wrapped.memory);
-    wrapped.memory = moved;
-    wrapped.repointer();
-    try expectEqual(&a1, wrapped.get());
-  }
+    for (0..4) |_| {
+        const moved = try testing.allocator.alignedAlloc(u8, WrappedA.alignment, wrapped.memory.len);
+        @memcpy(moved, wrapped.memory);
+        testing.allocator.free(wrapped.memory);
+        wrapped.memory = moved;
+        wrapped.repointer();
+        try expectEqual(&a1, wrapped.get());
+    }
 }
 
 test "recursive stress: repeated set across acyclic recursive payloads" {
-  const Node = struct {
-    payload: u32,
-    msg: []const u8,
-    next: ?*const @This(),
-  };
+    const Node = struct {
+        payload: u32,
+        msg: []const u8,
+        next: ?*const @This(),
+    };
 
-  const a3 = Node{ .payload = 3, .msg = "a3", .next = null };
-  const a2 = Node{ .payload = 2, .msg = "a2", .next = &a3 };
-  const a1 = Node{ .payload = 1, .msg = "a1", .next = &a2 };
+    const a3 = Node{ .payload = 3, .msg = "a3", .next = null };
+    const a2 = Node{ .payload = 2, .msg = "a2", .next = &a3 };
+    const a1 = Node{ .payload = 1, .msg = "a1", .next = &a2 };
 
-  const b4 = Node{ .payload = 40, .msg = "b4", .next = null };
-  const b3 = Node{ .payload = 30, .msg = "b3", .next = &b4 };
-  const b2 = Node{ .payload = 20, .msg = "b2", .next = &b3 };
-  const b1 = Node{ .payload = 10, .msg = "b1", .next = &b2 };
+    const b4 = Node{ .payload = 40, .msg = "b4", .next = null };
+    const b3 = Node{ .payload = 30, .msg = "b3", .next = &b4 };
+    const b2 = Node{ .payload = 20, .msg = "b2", .next = &b3 };
+    const b1 = Node{ .payload = 10, .msg = "b1", .next = &b2 };
 
-  var wrapped = try Wrapper(Node, .{}).init(&a1, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
+    var wrapped = try Wrapper(Node, .{}).init(&a1, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
 
-  try expectEqual(&a1, wrapped.get());
-  try wrapped.set(testing.allocator, &b1);
-  try expectEqual(&b1, wrapped.get());
-  try wrapped.set(testing.allocator, &a1);
-  try expectEqual(&a1, wrapped.get());
+    try expectEqual(&a1, wrapped.get());
+    try wrapped.set(testing.allocator, &b1);
+    try expectEqual(&b1, wrapped.get());
+    try wrapped.set(testing.allocator, &a1);
+    try expectEqual(&a1, wrapped.get());
 }
 
 test "massive messy type stress: quadruple-recursive tagged-union pointer slice kitchen sink" {
-  const Err = error{ Missing, Corrupt, Exploded };
+    const Err = error{ Missing, Corrupt, Exploded };
 
-  const Namespace = struct {
-    const Blob = struct {
-      id: u32,
-      bytes: []const u8,
-      next: ?*const @This(),
-      maybe_err: Err![]const u8,
+    const Namespace = struct {
+        const Blob = struct {
+            id: u32,
+            bytes: []const u8,
+            next: ?*const @This(),
+            maybe_err: Err![]const u8,
+        };
+
+        const NodeA = struct {
+            id: u32,
+            label: []const u8,
+            b: ?*const NodeB,
+            c: ?*const NodeC,
+            d: ?*const NodeD,
+            inline_payload: Payload,
+            refs: []const ?*const NodeA,
+            flags: packed struct {
+                active: bool,
+                archived: bool,
+                mode: u6,
+            },
+        };
+
+        const NodeB = struct {
+            weight: f64,
+            note: []const u8,
+            parent_like: ?*const NodeA,
+            next: ?*const @This(),
+            c_items: []const NodeC,
+            state: State,
+        };
+
+        const NodeC = union(enum) {
+            none: void,
+            text: []const u8,
+            blob: *const Blob,
+            point_to_d: *const NodeD,
+            tuple: struct {
+                a: ?*const NodeA,
+                b: ?*const NodeB,
+                msg: []const u8,
+            },
+            more: []const Payload,
+        };
+
+        const NodeD = struct {
+            rank: i16,
+            name: []const u8,
+            link_b: ?*const NodeB,
+            next: ?*const @This(),
+            states: []const State,
+            alt: Payload,
+            maybe_payload: ?Payload,
+        };
+
+        const State = union(enum) {
+            idle: void,
+            text: []const u8,
+            counters: [3]u32,
+            refs: struct {
+                a: ?*const NodeA,
+                b: ?*const NodeB,
+                d: ?*const NodeD,
+            },
+            nested_error: Err![]const u8,
+            node_c: NodeC,
+        };
+
+        const Payload = union(enum) {
+            small: u8,
+            name: []const u8,
+            blob_chain: []const *const Blob,
+            a_ref: ?*const NodeA,
+            b_ref: ?*const NodeB,
+            c_val: NodeC,
+            d_ref: ?*const NodeD,
+            state: State,
+            opt_state: ?State,
+            history: []const State,
+            deep: struct {
+                lines: []const []const u8,
+                maybe_err: Err!?[]const u8,
+                vector: @Vector(8, i16),
+            },
+        };
+
+        const Mega = struct {
+            title: []const u8,
+            version: u16,
+            root_a: *const NodeA,
+            root_b: *const NodeB,
+            root_c: NodeC,
+            root_d: *const NodeD,
+            blobs: []const Blob,
+            payloads: []const Payload,
+            states: []const State,
+            nested_strings: []const []const []const u8,
+            matrix: [3]@Vector(4, u16),
+            toggles: [5]bool,
+            maybe_payload: ?Payload,
+            err_payload: Err!Payload,
+            optional_root: ?*const NodeD,
+            fanout: []const ?*const NodeA,
+            sentinel: void,
+        };
     };
 
-    const NodeA = struct {
-      id: u32,
-      label: []const u8,
-      b: ?*const NodeB,
-      c: ?*const NodeC,
-      d: ?*const NodeD,
-      inline_payload: Payload,
-      refs: []const ?*const NodeA,
-      flags: packed struct {
-        active: bool,
-        archived: bool,
-        mode: u6,
-      },
+    const Blob = Namespace.Blob;
+    const NodeA = Namespace.NodeA;
+    const NodeB = Namespace.NodeB;
+    const NodeC = Namespace.NodeC;
+    const NodeD = Namespace.NodeD;
+    const State = Namespace.State;
+    const Payload = Namespace.Payload;
+    const Mega = Namespace.Mega;
+    const MegaWrapper = Wrapper(Mega, .{});
+
+    const blob5 = Blob{
+        .id = 5,
+        .bytes = "blob-5-tail",
+        .next = null,
+        .maybe_err = "blob5-ok",
+    };
+    const blob4 = Blob{
+        .id = 4,
+        .bytes = "blob-4",
+        .next = &blob5,
+        .maybe_err = Err.Corrupt,
+    };
+    const blob3 = Blob{
+        .id = 3,
+        .bytes = "",
+        .next = &blob4,
+        .maybe_err = "blob3-ok",
+    };
+    const blob2 = Blob{
+        .id = 2,
+        .bytes = "blob-2",
+        .next = &blob3,
+        .maybe_err = "blob2-ok",
+    };
+    const blob1 = Blob{
+        .id = 1,
+        .bytes = "blob-1-head",
+        .next = &blob2,
+        .maybe_err = "blob1-ok",
     };
 
-    const NodeB = struct {
-      weight: f64,
-      note: []const u8,
-      parent_like: ?*const NodeA,
-      next: ?*const @This(),
-      c_items: []const NodeC,
-      state: State,
+    const d4 = NodeD{
+        .rank = 40,
+        .name = "d4",
+        .link_b = null,
+        .next = null,
+        .states = &.{
+            State{ .idle = {} },
+            State{ .nested_error = Err.Exploded },
+        },
+        .alt = Payload{ .small = 9 },
+        .maybe_payload = null,
+    };
+    const c4 = NodeC{ .blob = &blob4 };
+    const b4 = NodeB{
+        .weight = 4.4,
+        .note = "b4",
+        .parent_like = null,
+        .next = null,
+        .c_items = &.{
+            c4,
+            NodeC{ .text = "b4-c-text" },
+        },
+        .state = State{ .idle = {} },
+    };
+    const a4 = NodeA{
+        .id = 4,
+        .label = "a4",
+        .b = &b4,
+        .c = &c4,
+        .d = &d4,
+        .inline_payload = Payload{ .name = "payload-a4" },
+        .refs = &.{null},
+        .flags = .{ .active = true, .archived = false, .mode = 7 },
     };
 
-    const NodeC = union(enum) {
-      none: void,
-      text: []const u8,
-      blob: *const Blob,
-      point_to_d: *const NodeD,
-      tuple: struct {
-        a: ?*const NodeA,
-        b: ?*const NodeB,
-        msg: []const u8,
-      },
-      more: []const Payload,
+    const p3_a = Payload{
+        .deep = .{
+            .lines = &.{ "p3-a-line-1", "p3-a-line-2" },
+            .maybe_err = @as(?[]const u8, null),
+            .vector = .{ 1, 2, 3, 4, 5, 6, 7, 8 },
+        },
+    };
+    const p3_b = Payload{ .d_ref = &d4 };
+    const c3 = NodeC{ .more = &.{ p3_a, p3_b } };
+    const d3 = NodeD{
+        .rank = 30,
+        .name = "d3",
+        .link_b = &b4,
+        .next = &d4,
+        .states = &.{
+            State{ .counters = .{ 3, 30, 300 } },
+            State{ .refs = .{ .a = &a4, .b = &b4, .d = &d4 } },
+            State{ .nested_error = "d3-state-ok" },
+        },
+        .alt = Payload{ .a_ref = &a4 },
+        .maybe_payload = Payload{ .opt_state = State{ .text = "d3-opt-state" } },
+    };
+    const b3 = NodeB{
+        .weight = 3.3,
+        .note = "b3",
+        .parent_like = &a4,
+        .next = &b4,
+        .c_items = &.{
+            c3,
+            NodeC{ .point_to_d = &d3 },
+        },
+        .state = State{ .node_c = NodeC{ .text = "b3-state-c" } },
+    };
+    const a3 = NodeA{
+        .id = 3,
+        .label = "a3",
+        .b = &b3,
+        .c = &c3,
+        .d = &d3,
+        .inline_payload = Payload{ .history = &.{ State{ .text = "a3-h1" }, State{ .text = "a3-h2" } } },
+        .refs = &.{ &a4, null },
+        .flags = .{ .active = true, .archived = false, .mode = 11 },
     };
 
-    const NodeD = struct {
-      rank: i16,
-      name: []const u8,
-      link_b: ?*const NodeB,
-      next: ?*const @This(),
-      states: []const State,
-      alt: Payload,
-      maybe_payload: ?Payload,
+    const p2_a = Payload{ .blob_chain = &.{ &blob2, &blob4, &blob5 } };
+    const p2_b = Payload{ .state = State{ .nested_error = "p2-b-ok" } };
+    const c2 = NodeC{
+        .tuple = .{
+            .a = &a3,
+            .b = &b3,
+            .msg = "c2-tuple",
+        },
+    };
+    const d2 = NodeD{
+        .rank = 20,
+        .name = "d2",
+        .link_b = &b3,
+        .next = &d3,
+        .states = &.{
+            State{ .text = "d2-s0" },
+            State{ .refs = .{ .a = &a3, .b = &b3, .d = &d3 } },
+            State{ .node_c = c3 },
+        },
+        .alt = Payload{ .c_val = c2 },
+        .maybe_payload = Payload{ .history = &.{ State{ .idle = {} }, State{ .text = "d2-h1" } } },
+    };
+    const b2 = NodeB{
+        .weight = 2.2,
+        .note = "b2",
+        .parent_like = &a3,
+        .next = &b3,
+        .c_items = &.{
+            c2,
+            NodeC{ .more = &.{ p2_a, p2_b } },
+        },
+        .state = State{ .counters = .{ 2, 20, 200 } },
+    };
+    const a2 = NodeA{
+        .id = 2,
+        .label = "a2",
+        .b = &b2,
+        .c = &c2,
+        .d = &d2,
+        .inline_payload = Payload{ .b_ref = &b3 },
+        .refs = &.{ &a3, &a4, null },
+        .flags = .{ .active = true, .archived = false, .mode = 19 },
     };
 
-    const State = union(enum) {
-      idle: void,
-      text: []const u8,
-      counters: [3]u32,
-      refs: struct {
-        a: ?*const NodeA,
-        b: ?*const NodeB,
-        d: ?*const NodeD,
-      },
-      nested_error: Err![]const u8,
-      node_c: NodeC,
+    const p1_a = Payload{ .a_ref = &a2 };
+    const p1_b = Payload{
+        .deep = .{
+            .lines = &.{ "p1-deep-0", "p1-deep-1", "p1-deep-2" },
+            .maybe_err = "p1-deep-ok",
+            .vector = .{ -1, -2, -3, -4, 4, 3, 2, 1 },
+        },
+    };
+    const c1 = NodeC{ .more = &.{ p1_a, p1_b, Payload{ .d_ref = &d2 } } };
+    const d1 = NodeD{
+        .rank = 10,
+        .name = "d1",
+        .link_b = &b2,
+        .next = &d2,
+        .states = &.{
+            State{ .text = "d1-s0" },
+            State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
+            State{ .nested_error = Err.Missing },
+            State{ .node_c = c2 },
+        },
+        .alt = Payload{ .state = State{ .node_c = c3 } },
+        .maybe_payload = Payload{ .opt_state = null },
+    };
+    const b1 = NodeB{
+        .weight = 1.1,
+        .note = "b1",
+        .parent_like = &a2,
+        .next = &b2,
+        .c_items = &.{
+            c1,
+            NodeC{ .point_to_d = &d1 },
+            NodeC{ .blob = &blob1 },
+        },
+        .state = State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
+    };
+    const a1 = NodeA{
+        .id = 1,
+        .label = "a1-root",
+        .b = &b1,
+        .c = &c1,
+        .d = &d1,
+        .inline_payload = Payload{ .history = &.{ State{ .text = "a1-h0" }, State{ .text = "a1-h1" }, State{ .idle = {} } } },
+        .refs = &.{ &a2, &a3, &a4, null },
+        .flags = .{ .active = true, .archived = false, .mode = 27 },
     };
 
-    const Payload = union(enum) {
-      small: u8,
-      name: []const u8,
-      blob_chain: []const *const Blob,
-      a_ref: ?*const NodeA,
-      b_ref: ?*const NodeB,
-      c_val: NodeC,
-      d_ref: ?*const NodeD,
-      state: State,
-      opt_state: ?State,
-      history: []const State,
-      deep: struct {
-        lines: []const []const u8,
-        maybe_err: Err!?[]const u8,
-        vector: @Vector(8, i16),
-      },
+    const mega1 = Mega{
+        .title = "mega-1",
+        .version = 1,
+        .root_a = &a1,
+        .root_b = &b1,
+        .root_c = NodeC{ .point_to_d = &d1 },
+        .root_d = &d1,
+        .blobs = &.{ blob1, blob2, blob3, blob4, blob5 },
+        .payloads = &.{
+            Payload{ .small = 42 },
+            Payload{ .name = "payload-root-1" },
+            Payload{ .blob_chain = &.{ &blob1, &blob2, &blob3 } },
+            Payload{ .c_val = c1 },
+            Payload{ .state = State{ .node_c = c2 } },
+            Payload{ .a_ref = &a3 },
+            Payload{ .d_ref = &d4 },
+        },
+        .states = &.{
+            State{ .idle = {} },
+            State{ .text = "state-1" },
+            State{ .counters = .{ 10, 20, 30 } },
+            State{ .node_c = c1 },
+            State{ .nested_error = "state-ok" },
+        },
+        .nested_strings = &.{
+            &.{ "n1-a", "n1-b", "n1-c" },
+            &.{"n2-a"},
+            &.{},
+            &.{ "n4-a", "n4-b" },
+        },
+        .matrix = .{
+            .{ 1, 2, 3, 4 },
+            .{ 5, 6, 7, 8 },
+            .{ 9, 10, 11, 12 },
+        },
+        .toggles = .{ true, false, true, true, false },
+        .maybe_payload = Payload{ .opt_state = State{ .text = "maybe-payload-1" } },
+        .err_payload = Payload{ .deep = .{
+            .lines = &.{ "err-p1-a", "err-p1-b" },
+            .maybe_err = @as(?[]const u8, null),
+            .vector = .{ 10, 20, 30, 40, -10, -20, -30, -40 },
+        } },
+        .optional_root = &d2,
+        .fanout = &.{ &a1, &a2, null, &a4 },
+        .sentinel = {},
     };
 
-    const Mega = struct {
-      title: []const u8,
-      version: u16,
-      root_a: *const NodeA,
-      root_b: *const NodeB,
-      root_c: NodeC,
-      root_d: *const NodeD,
-      blobs: []const Blob,
-      payloads: []const Payload,
-      states: []const State,
-      nested_strings: []const []const []const u8,
-      matrix: [3]@Vector(4, u16),
-      toggles: [5]bool,
-      maybe_payload: ?Payload,
-      err_payload: Err!Payload,
-      optional_root: ?*const NodeD,
-      fanout: []const ?*const NodeA,
-      sentinel: void,
+    const mega2 = Mega{
+        .title = "mega-2",
+        .version = 2,
+        .root_a = &a2,
+        .root_b = &b2,
+        .root_c = NodeC{ .tuple = .{ .a = &a3, .b = &b3, .msg = "mega2-tuple" } },
+        .root_d = &d2,
+        .blobs = &.{ blob2, blob3, blob4 },
+        .payloads = &.{
+            Payload{ .small = 7 },
+            Payload{ .state = State{ .text = "mega2-state" } },
+            Payload{ .blob_chain = &.{ &blob2, &blob5 } },
+            Payload{ .b_ref = &b4 },
+            Payload{ .history = &.{ State{ .idle = {} }, State{ .nested_error = Err.Corrupt } } },
+        },
+        .states = &.{
+            State{ .text = "s2-1" },
+            State{ .refs = .{ .a = &a3, .b = &b4, .d = &d4 } },
+            State{ .node_c = c3 },
+        },
+        .nested_strings = &.{
+            &.{ "x", "y" },
+            &.{ "z0", "z1", "z2", "z3" },
+        },
+        .matrix = .{
+            .{ 12, 11, 10, 9 },
+            .{ 8, 7, 6, 5 },
+            .{ 4, 3, 2, 1 },
+        },
+        .toggles = .{ false, false, true, false, true },
+        .maybe_payload = null,
+        .err_payload = Err.Exploded,
+        .optional_root = null,
+        .fanout = &.{ &a2, &a3, &a4 },
+        .sentinel = {},
     };
-  };
 
-  const Blob = Namespace.Blob;
-  const NodeA = Namespace.NodeA;
-  const NodeB = Namespace.NodeB;
-  const NodeC = Namespace.NodeC;
-  const NodeD = Namespace.NodeD;
-  const State = Namespace.State;
-  const Payload = Namespace.Payload;
-  const Mega = Namespace.Mega;
-  const MegaWrapper = Wrapper(Mega, .{});
+    const mega1_size = MegaWrapper.getSize(&mega1);
+    const mega2_size = MegaWrapper.getSize(&mega2);
+    try testing.expect(mega1_size > @sizeOf(Mega));
+    try testing.expect(mega2_size > @sizeOf(Mega));
+    try testing.expect(mega1_size < 16 * 1024 * 1024);
+    try testing.expect(mega2_size < 16 * 1024 * 1024);
 
-  const blob5 = Blob{
-    .id = 5,
-    .bytes = "blob-5-tail",
-    .next = null,
-    .maybe_err = "blob5-ok",
-  };
-  const blob4 = Blob{
-    .id = 4,
-    .bytes = "blob-4",
-    .next = &blob5,
-    .maybe_err = Err.Corrupt,
-  };
-  const blob3 = Blob{
-    .id = 3,
-    .bytes = "",
-    .next = &blob4,
-    .maybe_err = "blob3-ok",
-  };
-  const blob2 = Blob{
-    .id = 2,
-    .bytes = "blob-2",
-    .next = &blob3,
-    .maybe_err = "blob2-ok",
-  };
-  const blob1 = Blob{
-    .id = 1,
-    .bytes = "blob-1-head",
-    .next = &blob2,
-    .maybe_err = "blob1-ok",
-  };
+    try testMergingDemerging(mega1, .{});
+    try testMergingDemerging(mega2, .{});
 
-  const d4 = NodeD{
-    .rank = 40,
-    .name = "d4",
-    .link_b = null,
-    .next = null,
-    .states = &.{
-      State{ .idle = {} },
-      State{ .nested_error = Err.Exploded },
-    },
-    .alt = Payload{ .small = 9 },
-    .maybe_payload = null,
-  };
-  const c4 = NodeC{ .blob = &blob4 };
-  const b4 = NodeB{
-    .weight = 4.4,
-    .note = "b4",
-    .parent_like = null,
-    .next = null,
-    .c_items = &.{
-      c4,
-      NodeC{ .text = "b4-c-text" },
-    },
-    .state = State{ .idle = {} },
-  };
-  const a4 = NodeA{
-    .id = 4,
-    .label = "a4",
-    .b = &b4,
-    .c = &c4,
-    .d = &d4,
-    .inline_payload = Payload{ .name = "payload-a4" },
-    .refs = &.{null},
-    .flags = .{ .active = true, .archived = false, .mode = 7 },
-  };
+    var wrapped = try MegaWrapper.init(&mega1, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
+    try expectEqual(&mega1, wrapped.get());
 
-  const p3_a = Payload{
-    .deep = .{
-      .lines = &.{ "p3-a-line-1", "p3-a-line-2" },
-      .maybe_err = @as(?[]const u8, null),
-      .vector = .{ 1, 2, 3, 4, 5, 6, 7, 8 },
-    },
-  };
-  const p3_b = Payload{ .d_ref = &d4 };
-  const c3 = NodeC{ .more = &.{ p3_a, p3_b } };
-  const d3 = NodeD{
-    .rank = 30,
-    .name = "d3",
-    .link_b = &b4,
-    .next = &d4,
-    .states = &.{
-      State{ .counters = .{ 3, 30, 300 } },
-      State{ .refs = .{ .a = &a4, .b = &b4, .d = &d4 } },
-      State{ .nested_error = "d3-state-ok" },
-    },
-    .alt = Payload{ .a_ref = &a4 },
-    .maybe_payload = Payload{ .opt_state = State{ .text = "d3-opt-state" } },
-  };
-  const b3 = NodeB{
-    .weight = 3.3,
-    .note = "b3",
-    .parent_like = &a4,
-    .next = &b4,
-    .c_items = &.{
-      c3,
-      NodeC{ .point_to_d = &d3 },
-    },
-    .state = State{ .node_c = NodeC{ .text = "b3-state-c" } },
-  };
-  const a3 = NodeA{
-    .id = 3,
-    .label = "a3",
-    .b = &b3,
-    .c = &c3,
-    .d = &d3,
-    .inline_payload = Payload{ .history = &.{ State{ .text = "a3-h1" }, State{ .text = "a3-h2" } } },
-    .refs = &.{ &a4, null },
-    .flags = .{ .active = true, .archived = false, .mode = 11 },
-  };
+    var cloned = try wrapped.clone(testing.allocator);
+    defer cloned.deinit(testing.allocator);
+    try expectEqual(wrapped.get(), cloned.get());
 
-  const p2_a = Payload{ .blob_chain = &.{ &blob2, &blob4, &blob5 } };
-  const p2_b = Payload{ .state = State{ .nested_error = "p2-b-ok" } };
-  const c2 = NodeC{
-    .tuple = .{
-      .a = &a3,
-      .b = &b3,
-      .msg = "c2-tuple",
-    },
-  };
-  const d2 = NodeD{
-    .rank = 20,
-    .name = "d2",
-    .link_b = &b3,
-    .next = &d3,
-    .states = &.{
-      State{ .text = "d2-s0" },
-      State{ .refs = .{ .a = &a3, .b = &b3, .d = &d3 } },
-      State{ .node_c = c3 },
-    },
-    .alt = Payload{ .c_val = c2 },
-    .maybe_payload = Payload{ .history = &.{ State{ .idle = {} }, State{ .text = "d2-h1" } } },
-  };
-  const b2 = NodeB{
-    .weight = 2.2,
-    .note = "b2",
-    .parent_like = &a3,
-    .next = &b3,
-    .c_items = &.{
-      c2,
-      NodeC{ .more = &.{ p2_a, p2_b } },
-    },
-    .state = State{ .counters = .{ 2, 20, 200 } },
-  };
-  const a2 = NodeA{
-    .id = 2,
-    .label = "a2",
-    .b = &b2,
-    .c = &c2,
-    .d = &d2,
-    .inline_payload = Payload{ .b_ref = &b3 },
-    .refs = &.{ &a3, &a4, null },
-    .flags = .{ .active = true, .archived = false, .mode = 19 },
-  };
+    for (0..3) |_| {
+        const moved = try testing.allocator.alignedAlloc(u8, MegaWrapper.alignment, cloned.memory.len);
+        @memcpy(moved, cloned.memory);
+        testing.allocator.free(cloned.memory);
+        cloned.memory = moved;
+        cloned.repointer();
+        try expectEqual(&mega1, cloned.get());
+    }
 
-  const p1_a = Payload{ .a_ref = &a2 };
-  const p1_b = Payload{
-    .deep = .{
-      .lines = &.{ "p1-deep-0", "p1-deep-1", "p1-deep-2" },
-      .maybe_err = "p1-deep-ok",
-      .vector = .{ -1, -2, -3, -4, 4, 3, 2, 1 },
-    },
-  };
-  const c1 = NodeC{ .more = &.{ p1_a, p1_b, Payload{ .d_ref = &d2 } } };
-  const d1 = NodeD{
-    .rank = 10,
-    .name = "d1",
-    .link_b = &b2,
-    .next = &d2,
-    .states = &.{
-      State{ .text = "d1-s0" },
-      State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
-      State{ .nested_error = Err.Missing },
-      State{ .node_c = c2 },
-    },
-    .alt = Payload{ .state = State{ .node_c = c3 } },
-    .maybe_payload = Payload{ .opt_state = null },
-  };
-  const b1 = NodeB{
-    .weight = 1.1,
-    .note = "b1",
-    .parent_like = &a2,
-    .next = &b2,
-    .c_items = &.{
-      c1,
-      NodeC{ .point_to_d = &d1 },
-      NodeC{ .blob = &blob1 },
-    },
-    .state = State{ .refs = .{ .a = &a2, .b = &b2, .d = &d2 } },
-  };
-  const a1 = NodeA{
-    .id = 1,
-    .label = "a1-root",
-    .b = &b1,
-    .c = &c1,
-    .d = &d1,
-    .inline_payload = Payload{ .history = &.{ State{ .text = "a1-h0" }, State{ .text = "a1-h1" }, State{ .idle = {} } } },
-    .refs = &.{ &a2, &a3, &a4, null },
-    .flags = .{ .active = true, .archived = false, .mode = 27 },
-  };
+    try wrapped.set(testing.allocator, &mega2);
+    try expectEqual(&mega2, wrapped.get());
 
-  const mega1 = Mega{
-    .title = "mega-1",
-    .version = 1,
-    .root_a = &a1,
-    .root_b = &b1,
-    .root_c = NodeC{ .point_to_d = &d1 },
-    .root_d = &d1,
-    .blobs = &.{ blob1, blob2, blob3, blob4, blob5 },
-    .payloads = &.{
-      Payload{ .small = 42 },
-      Payload{ .name = "payload-root-1" },
-      Payload{ .blob_chain = &.{ &blob1, &blob2, &blob3 } },
-      Payload{ .c_val = c1 },
-      Payload{ .state = State{ .node_c = c2 } },
-      Payload{ .a_ref = &a3 },
-      Payload{ .d_ref = &d4 },
-    },
-    .states = &.{
-      State{ .idle = {} },
-      State{ .text = "state-1" },
-      State{ .counters = .{ 10, 20, 30 } },
-      State{ .node_c = c1 },
-      State{ .nested_error = "state-ok" },
-    },
-    .nested_strings = &.{
-      &.{ "n1-a", "n1-b", "n1-c" },
-      &.{"n2-a"},
-      &.{},
-      &.{ "n4-a", "n4-b" },
-    },
-    .matrix = .{
-      .{ 1, 2, 3, 4 },
-      .{ 5, 6, 7, 8 },
-      .{ 9, 10, 11, 12 },
-    },
-    .toggles = .{ true, false, true, true, false },
-    .maybe_payload = Payload{ .opt_state = State{ .text = "maybe-payload-1" } },
-    .err_payload = Payload{ .deep = .{
-      .lines = &.{ "err-p1-a", "err-p1-b" },
-      .maybe_err = @as(?[]const u8, null),
-      .vector = .{ 10, 20, 30, 40, -10, -20, -30, -40 },
-    } },
-    .optional_root = &d2,
-    .fanout = &.{ &a1, &a2, null, &a4 },
-    .sentinel = {},
-  };
-
-  const mega2 = Mega{
-    .title = "mega-2",
-    .version = 2,
-    .root_a = &a2,
-    .root_b = &b2,
-    .root_c = NodeC{ .tuple = .{ .a = &a3, .b = &b3, .msg = "mega2-tuple" } },
-    .root_d = &d2,
-    .blobs = &.{ blob2, blob3, blob4 },
-    .payloads = &.{
-      Payload{ .small = 7 },
-      Payload{ .state = State{ .text = "mega2-state" } },
-      Payload{ .blob_chain = &.{ &blob2, &blob5 } },
-      Payload{ .b_ref = &b4 },
-      Payload{ .history = &.{ State{ .idle = {} }, State{ .nested_error = Err.Corrupt } } },
-    },
-    .states = &.{
-      State{ .text = "s2-1" },
-      State{ .refs = .{ .a = &a3, .b = &b4, .d = &d4 } },
-      State{ .node_c = c3 },
-    },
-    .nested_strings = &.{
-      &.{ "x", "y" },
-      &.{ "z0", "z1", "z2", "z3" },
-    },
-    .matrix = .{
-      .{ 12, 11, 10, 9 },
-      .{ 8, 7, 6, 5 },
-      .{ 4, 3, 2, 1 },
-    },
-    .toggles = .{ false, false, true, false, true },
-    .maybe_payload = null,
-    .err_payload = Err.Exploded,
-    .optional_root = null,
-    .fanout = &.{ &a2, &a3, &a4 },
-    .sentinel = {},
-  };
-
-  const mega1_size = MegaWrapper.getSize(&mega1);
-  const mega2_size = MegaWrapper.getSize(&mega2);
-  try testing.expect(mega1_size > @sizeOf(Mega));
-  try testing.expect(mega2_size > @sizeOf(Mega));
-  try testing.expect(mega1_size < 16 * 1024 * 1024);
-  try testing.expect(mega2_size < 16 * 1024 * 1024);
-
-  try testMergingDemerging(mega1, .{});
-  try testMergingDemerging(mega2, .{});
-
-  var wrapped = try MegaWrapper.init(&mega1, testing.allocator);
-  defer wrapped.deinit(testing.allocator);
-  try expectEqual(&mega1, wrapped.get());
-
-  var cloned = try wrapped.clone(testing.allocator);
-  defer cloned.deinit(testing.allocator);
-  try expectEqual(wrapped.get(), cloned.get());
-
-  for (0..3) |_| {
-    const moved = try testing.allocator.alignedAlloc(u8, MegaWrapper.alignment, cloned.memory.len);
-    @memcpy(moved, cloned.memory);
-    testing.allocator.free(cloned.memory);
-    cloned.memory = moved;
-    cloned.repointer();
-    try expectEqual(&mega1, cloned.get());
-  }
-
-  try wrapped.set(testing.allocator, &mega2);
-  try expectEqual(&mega2, wrapped.get());
-
-  try wrapped.set(testing.allocator, &mega1);
-  try expectEqual(&mega1, wrapped.get());
+    try wrapped.set(testing.allocator, &mega1);
+    try expectEqual(&mega1, wrapped.get());
 }
