@@ -950,6 +950,26 @@ test "meta: Context helpers" {
     try testing.expect(ctx3.Type == f32);
 }
 
+test "serialization_functions: _align tracks converted representation" {
+    const StaticMerged = Context.init(u64, .{}, ToMergedT);
+    try testing.expectEqual(.@"1", StaticMerged.Underlying._align);
+
+    const ZeroLenArray = [0]struct { s: []const u8 };
+    const ZeroLenMerged = Context.init(ZeroLenArray, .{}, ToMergedT);
+    try testing.expectEqual(.@"1", ZeroLenMerged.Underlying._align);
+
+    const AlignedStruct = struct {
+        a: []const u8,
+        b: []align(16) const u32,
+    };
+    const AlignedMerged = Context.init(AlignedStruct, .{}, ToMergedT);
+    try testing.expectEqual(.@"16", AlignedMerged.Underlying._align);
+
+    const Ptr = *align(32) const struct { bytes: []const u8 };
+    const PtrMerged = Context.init(Ptr, .{}, ToMergedT);
+    try testing.expectEqual(.@"32", PtrMerged.Underlying._align);
+}
+
 test "root: DynamicWrapper and DynamicWrapConverted" {
     const S = struct {
         name: []const u8,

@@ -1,11 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-pub const max_align = blk: {
-    const fields = @typeInfo(std.mem.Alignment).@"enum".fields;
-    var max: std.mem.Alignment = .@"1";
-    for (fields) |f| max = std.mem.Alignment.max(max, @enumFromInt(f.value));
-    break :blk max;
-};
 
 /// Given a function type, get the return type
 pub fn FnReturnType(T: type) type {

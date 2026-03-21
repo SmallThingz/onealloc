@@ -12,7 +12,8 @@ pub const Context = meta.GetContext(MergeOptions);
 pub const MergedSignature = struct {
     /// The underlying type that was transformed
     T: type,
-    /// The alignment of dynamic data, should be used by the Wrappers only
+    /// The alignment requirement of the converted representation's dynamic region.
+    /// For direct/static conversions this remains `.@"1"`.
     _align: std.mem.Alignment = .@"1",
 };
 
@@ -38,7 +39,6 @@ pub fn GetPointerMergedT(context: Context) type {
     const pi = @typeInfo(T).pointer;
     const ptr_alignment = pi.alignment orelse @alignOf(pi.child);
     std.debug.assert(pi.size == .one);
-    std.debug.assert(std.mem.Alignment.max(.fromByteUnits(ptr_alignment), meta.max_align) == meta.max_align);
     if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
     const Retval = opaque {
@@ -100,7 +100,6 @@ pub fn GetSliceMergedT(context: Context) type {
     const sentinel = pi.sentinel();
     const sentinel_len: usize = if (sentinel == null) 0 else 1;
     std.debug.assert(pi.size == .slice);
-    std.debug.assert(std.mem.Alignment.max(.fromByteUnits(ptr_alignment), meta.max_align) == meta.max_align);
     if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
     const Retval = opaque {
