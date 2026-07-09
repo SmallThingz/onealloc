@@ -97,7 +97,7 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
             // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
             const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len) };
             @memcpy(retval.memory, self.memory);
-            retval.repointer();
+            retval.repointerTrusted();
             return retval;
         }
 
@@ -133,10 +133,27 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        pub fn repointer(self: *const @This()) void {
+        pub fn repointerTrusted(self: *const @This()) void {
+            self._repointer(false) catch unreachable;
+        }
+
+        /// Updates the internal pointers within the merged data structure. This is necessary
+        /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+        pub fn repointer(self: *const @This()) SF.RepointError!void {
+            try self._repointer(true);
+        }
+
+        /// Updates the internal pointers within the merged data structure. This is necessary
+        /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+        fn _repointer(self: *const @This(), comptime safe: bool) SF.RepointError!void {
             if (STATIC) return;
+            if (comptime safe) {
+                if (@sizeOf(T) >= self.memory.len) return SF.RepointError.OutOfBounds;
+            }
+
             var dynamic = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
-            MergedT.repointer(self.get(), &dynamic);
+
+            try MergedT.repointer(self.get(), &dynamic, safe);
             if (builtin.mode == .Debug) {
                 const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
                 const dynamic_limit = dynamic_start + (getSize(self.get()) - @sizeOf(T));
@@ -192,7 +209,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
             const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len) };
             @memcpy(retval.memory, self.memory);
             var new_val = old_val.*;
-            retval.repointer(&new_val);
+            retval.repointerTrusted(&new_val);
             return .{ new_val, retval };
         }
 
@@ -225,9 +242,21 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        pub fn repointer(self: *const @This(), val: *T) void {
+        pub fn repointerTrusted(self: *const @This(), val: *T) void {
+            self._repointer(val, false) catch unreachable;
+        }
+
+        /// Updates the internal pointers within the merged data structure. This is necessary
+        /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+        pub fn repointer(self: *const @This(), val: *T) SF.RepointError!void {
+            try self._repointer(val, true);
+        }
+
+        /// Updates the internal pointers within the merged data structure. This is necessary
+        /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
+        fn _repointer(self: *const @This(), val: *T, comptime safe: bool) SF.RepointError!void {
             var dynamic = SF.Dynamic.init(self.memory);
-            MergedT.repointer(val, &dynamic);
+            try MergedT.repointer(val, &dynamic, safe);
             if (builtin.mode == .Debug) {
                 std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
             }
