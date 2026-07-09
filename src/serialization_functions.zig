@@ -166,7 +166,12 @@ pub fn GetSliceMergedT(context: Context) type {
             const aligned_dynamic = try dynamic.alignForward(ptr_alignment).unwrap();
             const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
             const len = val.*.len;
-            dynamic.* = try aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0).unwrap();
+            if (comptime safe) {
+                const byte_count = try std.math.mul(usize, @sizeOf(pi.child), try std.math.add(usize, len, sentinel_len));
+                dynamic.* = try aligned_dynamic.from(byte_count).alignForward(ptr_alignment).from(0).unwrap();
+            } else {
+                dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0);
+            }
 
             val.*.ptr = @ptrCast(child_static_ptr); // TODO: figure out if this is ok
             if (!SubStatic) {

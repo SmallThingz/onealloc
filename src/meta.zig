@@ -9,7 +9,7 @@ pub fn FnReturnType(T: type) type {
     };
 }
 
-pub const MemError = error{OutOfBounds};
+pub const MemError = error{ OutOfBounds, Overflow };
 
 /// A wrapper that either holds a value of T or a MemError.
 /// Has the same methods as T (forwarding calls to the inner value),
@@ -22,7 +22,10 @@ pub fn MaybeError(comptime T: type) type {
         pub inline fn unwrap(self: @This()) MemError!T {
             return switch (self) {
                 .value => |v| v,
-                .err => |e| e,
+                .err => |e| blk: {
+                    @branchHint(.cold);
+                    break :blk e;
+                },
             };
         }
 
@@ -30,7 +33,10 @@ pub fn MaybeError(comptime T: type) type {
             const RetType = @TypeOf(T.from(undefined, index));
             return switch (self) {
                 .value => |v| v.from(index),
-                .err => |e| @as(RetType, .{ .err = e }),
+                .err => |e| blk: {
+                    @branchHint(.cold);
+                    break :blk @as(RetType, .{ .err = e });
+                },
             };
         }
 
@@ -38,7 +44,10 @@ pub fn MaybeError(comptime T: type) type {
             const RetType = @TypeOf(T.alignForward(undefined, new_alignment));
             return switch (self) {
                 .value => |v| v.alignForward(new_alignment),
-                .err => |e| @as(RetType, .{ .err = e }),
+                .err => |e| blk: {
+                    @branchHint(.cold);
+                    break :blk @as(RetType, .{ .err = e });
+                },
             };
         }
 
@@ -46,14 +55,20 @@ pub fn MaybeError(comptime T: type) type {
             const RetType = @TypeOf(T.assertAligned(undefined, new_alignment));
             return switch (self) {
                 .value => |v| v.assertAligned(new_alignment),
-                .err => |e| @as(RetType, .{ .err = e }),
+                .err => |e| blk: {
+                    @branchHint(.cold);
+                    break :blk @as(RetType, .{ .err = e });
+                },
             };
         }
 
         pub fn format(self: @This(), writer: anytype) !void {
             switch (self) {
                 .value => |v| try v.format(writer),
-                .err => |e| try writer.print("MemError({})", .{e}),
+                .err => |e| {
+                    @branchHint(.cold);
+                    try writer.print("MemError({})", .{e});
+                },
             }
         }
     };
@@ -85,6 +100,7 @@ pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
         pub inline fn from(self: @This(), index: usize) FromRet {
             if (keep_len) {
                 if (index > self.len) {
+                    @branchHint(.cold);
                     if (safe) return FromRet{ .err = error.OutOfBounds };
                     if (builtin.mode == .Debug) {
                         std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
@@ -102,22 +118,33 @@ pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
             }
             const Aligned = Mem(.fromByteUnits(new_alignment), safe);
             const inner = Aligned{ .ptr = @alignCast(self.ptr), .len = self.len };
-            if (safe) return AlignRet(new_alignment){ .value = inner };
+            if (safe) return .{ .value = inner };
             return inner;
         }
 
         pub inline fn alignForward(self: @This(), comptime new_alignment: usize) AlignRet(new_alignment) {
-            const aligned_ptr = std.mem.alignForward(usize, @intFromPtr(self.ptr), new_alignment);
-            if (keep_len) {
-                const diff = aligned_ptr - @intFromPtr(self.ptr);
-                if (diff > self.len) {
+            const addr = @intFromPtr(self.ptr);
+            const aligned_ptr = std.mem.alignForward(usize, addr, new_alignment);
+            if (comptime keep_len) {
+                if (aligned_ptr < addr) {
+                    @branchHint(.cold);
+                    if (safe) return AlignRet(new_alignment){ .err = error.Overflow };
+                    if (builtin.mode == .Debug) {
+                        std.debug.panic("alignForward overflow at address 0x{x}", .{addr});
+                    }
+                }
+                if (aligned_ptr - addr > self.len) {
+                    @branchHint(.cold);
                     if (safe) return AlignRet(new_alignment){ .err = error.OutOfBounds };
+                    if (builtin.mode == .Debug) {
+                        std.debug.panic("alignForward oob at address 0x{x}", .{addr});
+                    }
                 }
             }
             const Aligned = Mem(.fromByteUnits(new_alignment), safe);
             const inner = Aligned{
                 .ptr = @ptrFromInt(aligned_ptr),
-                .len = if (keep_len) self.len - (aligned_ptr - @intFromPtr(self.ptr)) else {},
+                .len = if (keep_len) self.len - (aligned_ptr - addr) else {},
             };
             if (safe) return AlignRet(new_alignment){ .value = inner };
             return inner;
