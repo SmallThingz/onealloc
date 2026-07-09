@@ -17,17 +17,24 @@ pub const MergedSignature = struct {
     _align: std.mem.Alignment = .@"1",
 };
 
-pub const Dynamic = Mem(.@"1");
+pub const Dynamic = Mem(.@"1", false);
+
+/// Errors that can occur during safe repointer operations.
+pub fn RepointError(safe: bool) type {
+    return if (safe) meta.MemError else error{};
+}
 
 /// A no-op opaque type that is used for static types (types with no dynamic / allocated data)
 pub fn GetDirectMergedT(context: Context) type {
     const T = context.Type;
     return opaque {
-        pub const Underlying = MergedSignature{ .T = T };
+        pub const Underlying = MergedSignature{
+            .T = T,
+        };
         pub const STATIC = true; // Allow others to see if their child is static. This is required in slices
         pub inline fn write(noalias _: *T, noalias _: *Dynamic) void {}
         pub inline fn addDynamicSize(noalias _: *const T, noalias _: *usize) void {}
-        pub inline fn repointer(noalias _: *T, noalias _: *Dynamic) void {}
+        pub inline fn repointer(comptime safe: bool, noalias _: *T, noalias _: *Mem(.@"1", safe)) RepointError(safe)!void {}
     };
 }
 
@@ -42,7 +49,10 @@ pub fn GetPointerMergedT(context: Context) type {
     if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
     const Retval = opaque {
-        pub const Underlying = MergedSignature{ .T = T, ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(ptr_alignment) else std.mem.Alignment.max(.fromByteUnits(ptr_alignment), Child.Underlying._align) };
+        pub const Underlying = MergedSignature{
+            .T = T,
+            ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(ptr_alignment) else std.mem.Alignment.max(.fromByteUnits(ptr_alignment), Child.Underlying._align),
+        };
         const Child = next_context.T(pi.child).merge(root.ToMergedT);
         const next_context = context.see(T, @This());
 
@@ -71,14 +81,14 @@ pub fn GetPointerMergedT(context: Context) type {
             Child.addDynamicSize(val.*, size);
         }
 
-        pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias _val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             var ogptr = @intFromPtr(dynamic.ptr);
             const val: *meta.NonConstPointer(T, .one) = @ptrCast(@constCast(_val));
-            const aligned_dynamic = dynamic.alignForward(ptr_alignment);
-            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child)).alignForward(ptr_alignment).from(0);
+            const aligned_dynamic = try dynamic.alignForward(ptr_alignment).unwrap();
+            dynamic.* = try aligned_dynamic.from(@sizeOf(pi.child)).alignForward(ptr_alignment).from(0).unwrap();
 
             val.* = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
-            Child.repointer(val.*, dynamic);
+            try Child.repointer(safe, val.*, dynamic);
 
             if (builtin.mode == .Debug) {
                 addDynamicSize(val, &ogptr);
@@ -103,7 +113,10 @@ pub fn GetSliceMergedT(context: Context) type {
     if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
 
     const Retval = opaque {
-        pub const Underlying = MergedSignature{ .T = T, ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(ptr_alignment) else std.mem.Alignment.max(.fromByteUnits(ptr_alignment), Child.Underlying._align) };
+        pub const Underlying = MergedSignature{
+            .T = T,
+            ._align = if (next_context.seen_recursive >= 0) .fromByteUnits(ptr_alignment) else std.mem.Alignment.max(.fromByteUnits(ptr_alignment), Child.Underlying._align),
+        };
         const Child = next_context.T(pi.child).merge(root.ToMergedT);
         const SubStatic = @hasDecl(Child, "STATIC") and Child.STATIC;
         const next_context = context.see(T, @This());
@@ -146,18 +159,19 @@ pub fn GetSliceMergedT(context: Context) type {
             }
         }
 
-        pub fn repointer(noalias _val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias _val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             var ogptr = @intFromPtr(dynamic.ptr);
             const val: *meta.NonConstPointer(T, .slice) = @ptrCast(@constCast(_val));
-            const aligned_dynamic = dynamic.alignForward(ptr_alignment);
+
+            const aligned_dynamic = try dynamic.alignForward(ptr_alignment).unwrap();
             const child_static_ptr: meta.NonConstPointer(T, .many) = @ptrCast(aligned_dynamic.ptr);
             const len = val.*.len;
-            dynamic.* = aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0);
+            dynamic.* = try aligned_dynamic.from(@sizeOf(pi.child) * (len + sentinel_len)).alignForward(ptr_alignment).from(0).unwrap();
 
             val.*.ptr = @ptrCast(child_static_ptr); // TODO: figure out if this is ok
             if (!SubStatic) {
-                for (0..val.*.len) |i| Child.repointer(&val.*[i], dynamic);
-                if (sentinel_len != 0) Child.repointer(&child_static_ptr[len], dynamic);
+                for (0..val.*.len) |i| try Child.repointer(safe, &val.*[i], dynamic);
+                if (sentinel_len != 0) try Child.repointer(safe, &child_static_ptr[len], dynamic);
             }
 
             if (builtin.mode == .Debug) {
@@ -183,12 +197,14 @@ pub fn GetArrayMergedT(context: Context) type {
     if (@hasDecl(Child, "STATIC") and Child.STATIC) return GetDirectMergedT(context);
 
     return opaque {
-        pub const Underlying = MergedSignature{ .T = T, ._align = if (context.see(ai.child, void).seen_recursive >= 0) .@"1" else Child.Underlying._align };
+        pub const Underlying = MergedSignature{
+            .T = T,
+            ._align = if (context.see(ai.child, void).seen_recursive >= 0) .@"1" else Child.Underlying._align,
+        };
 
         pub fn write(noalias val: *T, noalias dynamic: *Dynamic) void {
-            @setEvalBranchQuota(1000_000);
             var ogptr = @intFromPtr(dynamic.ptr);
-            inline for (val) |*elem| Child.write(elem, dynamic);
+            for (val) |*elem| Child.write(elem, dynamic);
 
             if (builtin.mode == .Debug) {
                 addDynamicSize(val, &ogptr);
@@ -197,14 +213,13 @@ pub fn GetArrayMergedT(context: Context) type {
         }
 
         pub fn addDynamicSize(noalias val: *const T, noalias size: *usize) void {
-            @setEvalBranchQuota(1000_000);
-            inline for (val) |*elem| Child.addDynamicSize(elem, size);
+            for (val) |*elem| Child.addDynamicSize(elem, size);
         }
 
-        pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
-            @setEvalBranchQuota(1000_000);
+        pub fn repointer(comptime safe: bool, noalias val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             var ogptr = @intFromPtr(dynamic.ptr);
-            inline for (val) |*elem| Child.repointer(elem, dynamic);
+            // No inline here, expect auto inlining if compiler deems appropriate; force inlining causes bloat
+            for (val) |*elem| try Child.repointer(safe, elem, dynamic);
 
             if (builtin.mode == .Debug) {
                 addDynamicSize(val, &ogptr);
@@ -225,11 +240,14 @@ pub fn GetStructMergedT(context: Context) type {
     };
 
     const Retval = opaque {
-        pub const Underlying = MergedSignature{ .T = T, ._align = blk: {
-            var max: std.mem.Alignment = if (context.see(fields[0].original.type, void).seen_recursive >= 0) .@"1" else fields[0].merged.Underlying._align;
-            for (fields[1..]) |f| max = max.max(if (context.see(f.original.type, void).seen_recursive >= 0) .@"1" else f.merged.Underlying._align);
-            break :blk max;
-        } };
+        pub const Underlying = MergedSignature{
+            .T = T,
+            ._align = blk: {
+                var max: std.mem.Alignment = if (context.see(fields[0].original.type, void).seen_recursive >= 0) .@"1" else fields[0].merged.Underlying._align;
+                for (fields[1..]) |f| max = max.max(if (context.see(f.original.type, void).seen_recursive >= 0) .@"1" else f.merged.Underlying._align);
+                break :blk max;
+            },
+        };
         const STATIC = dynamic_field_count == 0;
 
         const fields = blk: {
@@ -307,11 +325,11 @@ pub fn GetStructMergedT(context: Context) type {
             }
         }
 
-        pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             @setEvalBranchQuota(1000_000);
             var ogptr = @intFromPtr(dynamic.ptr);
             inline for (sorted_dynamic_fields) |f| {
-                f.merged.repointer(&@field(val, f.original.name), dynamic);
+                try f.merged.repointer(safe, &@field(val, f.original.name), dynamic);
             }
 
             if (builtin.mode == .Debug) {
@@ -350,10 +368,10 @@ pub fn GetOptionalMergedT(context: Context) type {
             if (val.* != null) Child.addDynamicSize(&(val.*.?), size);
         }
 
-        pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             if (val.* != null) {
                 var ogptr = @intFromPtr(dynamic.ptr);
-                Child.repointer(&(val.*.?), dynamic);
+                try Child.repointer(safe, &(val.*.?), dynamic);
 
                 if (builtin.mode == .Debug) {
                     addDynamicSize(val, &ogptr);
@@ -389,9 +407,9 @@ pub fn GetErrorUnionMergedT(context: Context) type {
             Child.addDynamicSize(&(val.* catch return), size);
         }
 
-        pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             var ogptr = @intFromPtr(dynamic.ptr);
-            Child.repointer(&(val.* catch return), dynamic);
+            try Child.repointer(safe, &(val.* catch return), dynamic);
 
             if (builtin.mode == .Debug) {
                 addDynamicSize(val, &ogptr);
@@ -467,14 +485,14 @@ pub fn GetUnionMergedT(context: Context) type {
             unreachable;
         }
 
-        pub fn repointer(noalias val: *T, noalias dynamic: *Dynamic) void {
+        pub fn repointer(comptime safe: bool, noalias val: *T, noalias dynamic: *Mem(.@"1", safe)) RepointError(safe)!void {
             const active_tag = std.meta.activeTag(val.*);
 
             inline for (fields) |f| {
                 const field_as_tag = @field(TagType, f.original.name);
                 if (field_as_tag == active_tag) {
                     var ogptr = @intFromPtr(dynamic.ptr);
-                    f.merged.repointer(&@field(val, f.original.name), dynamic);
+                    try f.merged.repointer(safe, &@field(val, f.original.name), dynamic);
 
                     if (builtin.mode == .Debug) {
                         addDynamicSize(val, &ogptr);

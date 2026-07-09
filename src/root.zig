@@ -145,15 +145,15 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        fn _repointer(self: *const @This(), comptime safe: bool) SF.RepointError!void {
-            if (STATIC) return;
+        fn _repointer(self: *const @This(), comptime safe: bool) if (safe) SF.RepointError!void else error{}!void {
+            if (STATIC) return {};
             if (comptime safe) {
                 if (@sizeOf(T) >= self.memory.len) return SF.RepointError.OutOfBounds;
             }
 
-            var dynamic = SF.Dynamic.init(self.memory[@sizeOf(T)..]);
+            var dynamic = meta.Mem(.@"1", safe).init(self.memory[@sizeOf(T)..]);
 
-            try MergedT.repointer(self.get(), &dynamic, safe);
+            try MergedT.repointer(safe, self.get(), &dynamic);
             if (builtin.mode == .Debug) {
                 const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
                 const dynamic_limit = dynamic_start + (getSize(self.get()) - @sizeOf(T));
@@ -254,9 +254,9 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        fn _repointer(self: *const @This(), val: *T, comptime safe: bool) SF.RepointError!void {
-            var dynamic = SF.Dynamic.init(self.memory);
-            try MergedT.repointer(val, &dynamic, safe);
+        fn _repointer(self: *const @This(), val: *T, comptime safe: bool) if (safe) SF.RepointError!void else error{}!void {
+            var dynamic = meta.Mem(.@"1", safe).init(self.memory);
+            try MergedT.repointer(safe, val, &dynamic);
             if (builtin.mode == .Debug) {
                 std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
             }

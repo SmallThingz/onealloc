@@ -856,7 +856,7 @@ test "Wrapper repointer" {
     wrapped.memory = new_buffer;
 
     // internal pointers are now invalid
-    wrapped.repointer();
+    wrapped.repointerTrusted();
 
     // Verify that data is correct and pointers are valid
     const entry = wrapped.get();
@@ -886,7 +886,7 @@ test "serialization_functions: opaque with signature" {
         pub const STATIC = true;
         pub fn write(_: *MyT, _: *SF.Dynamic) void {}
         pub fn addDynamicSize(_: *const MyT, _: *usize) void {}
-        pub fn repointer(_: *MyT, _: *SF.Dynamic) void {}
+        pub fn repointer(comptime safe: bool, _: *MyT, _: *meta.Mem(.@"1", safe)) if (safe) SF.RepointError!void else error{}!void {}
     };
 
     const context = Context.init(MyMergedOpaque, .{}, ToMergedT);
@@ -1338,7 +1338,7 @@ test "recursive stress: mutually recursive acyclic graph survives repeated repoi
         @memcpy(moved, wrapped.memory);
         testing.allocator.free(wrapped.memory);
         wrapped.memory = moved;
-        wrapped.repointer();
+        wrapped.repointerTrusted();
         try expectEqual(&a1, wrapped.get());
     }
 }
@@ -1796,7 +1796,7 @@ test "massive messy type stress: quadruple-recursive tagged-union pointer slice 
         @memcpy(moved, cloned.memory);
         testing.allocator.free(cloned.memory);
         cloned.memory = moved;
-        cloned.repointer();
+        cloned.repointerTrusted();
         try expectEqual(&mega1, cloned.get());
     }
 
