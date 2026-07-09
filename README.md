@@ -3,14 +3,12 @@
 Convert complex data structures with nested types, pointers and slices into a **somewhat portable**, **contiguous**; **single** memory allocation.
 
 Merged memory is self-contained. It may be used for:
-* On-disk serialization\* (see "Portability" and "Safety" warnings).
+* On-disk serialization\* (see "Portability" warning).
 * Inter-process communication (IPC).
 * Cache-friendly memory layouts.
 
 > [!WARNING]
-> **Experimental:** This library is in active development.<br/>
 > **Portability:** Same **pointer size** and **endianness** is required for all platforms sharing the data.<br/>
-> **Safety:** Only use this on trusted data. It is incredibly easy to make a malicious payload that does out-of-bounds accesses.
 
 # Why OneAlloc?
 Structs containing several slices / pointers can lead to poor performance due to scattered memory access patterns, which is bad to CPU caching.
@@ -135,8 +133,12 @@ Deep copies the wrapper and its data into a new allocation.
 Updates internal pointers to be valid relative to the current `memory` address.
 **Crucial for serialization.** See "Serialization & Portability".
 
+### `repointerTrusted()`
+Faster variant of repointer that skips safety checks
+**Crucial for serialization.** See "Serialization & Portability".
+
 > [!WARNING]
-> `repointer()` is not safe to use on untrusted data. It is incredibly easy to make a malicious payload that does out-of-bounds accesses.
+> `repointerTrusted()` is not safe to use on untrusted data. It is incredibly easy to make a malicious payload that does out-of-bounds accesses.
 
 ### `getSize(val)` (Static)
 Calculates the number of bytes required to store `val` and all its children.
@@ -183,7 +185,6 @@ OneAlloc divides the single memory block into two sections: `[ Static Buffer | D
 1 **Data Cycles:** A structure that points to itself (directly or indirectly) will cause a stack overflow during merging.
   * *Supported:* Recursive Types (e.g., Linked List definitions).
   * *Unsupported:* Recursive Data (e.g., Node A points to Node B, Node B points to Node A).
+    - Attempting to merge a data structure with a cycle will cause infinite recursion and crash the program.
 2 **Unknown Pointers:** `[*c]`, `[*]`, and `opaque` pointers are compile errors unless `serialize_unknown_pointer_as_usize` is enabled in which case, the literal pointer address is stored.
-3 **Sentinel Slices:** Sentinel-terminated slices such as `[:0]const u8` are stored with their sentinel element preserved. The sentinel is not counted in `len`, but the merged buffer includes it so `slice[slice.len]` remains valid.
-4 **Data Cycles Will Cause Stack Overflow:** Attempting to merge a data structure with a cycle will cause infinite recursion and crash the program.
-5 **Pointer Aliasing / Topology:** When pointers are dereferenced (`depointer = true`, the default), shared pointer identity is not preserved. Two fields that originally point to the same object may point to separate copies after merge.
+3 **Pointer Aliasing / Multiple References:** When pointers are dereferenced (`depointer = true`, the default), shared pointer identity is not preserved. Two fields that originally point to the same object will point to separate copies after merge. If you are running into this problem, you have redundencies that should be removed.
