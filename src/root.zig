@@ -29,7 +29,7 @@ pub fn ToMergedT(context: SF.Context) type {
     const T = context.Type;
     @setEvalBranchQuota(1000_000);
     return switch (@typeInfo(T)) {
-        .type, .noreturn, .comptime_int, .comptime_float, .undefined, .@"fn", .frame, .@"anyframe", .enum_literal => {
+        .type, .noreturn, .comptime_int, .comptime_float, .undefined, .@"fn", .frame, .@"anyframe", .enum_literal, .spirv => {
             @compileError("Type '" ++ @tagName(std.meta.activeTag(@typeInfo(T))) ++ "' is not mergeable\n");
         },
         .void, .bool, .int, .float, .vector, .error_set, .null, .@"enum" => SF.GetDirectMergedT(context),
@@ -116,7 +116,7 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
         /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
         /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
         pub fn setAssert(self: *const @This(), value: *const T) void {
-            if (builtin.mode == .Debug) { // debug.assert alone may not be optimized out
+            if (builtin.mode == .debug) { // debug.assert alone may not be optimized out
                 std.debug.assert(getSize(value) <= self.memory.len);
             }
 
@@ -124,7 +124,7 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
             var dynamic_buffer: SF.Dynamic = .init(self.memory[@sizeOf(T)..]);
             MergedT.write(self.get(), &dynamic_buffer);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
                 const dynamic_limit = dynamic_start + (getSize(value) - @sizeOf(T));
                 std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= dynamic_limit);
@@ -154,7 +154,7 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
             var dynamic = meta.Mem(.@"1", safe).init(self.memory[@sizeOf(T)..]);
 
             try MergedT.repointer(safe, self.get(), &dynamic);
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 const dynamic_start = @intFromPtr(self.memory[@sizeOf(T)..].ptr);
                 const dynamic_limit = dynamic_start + (getSize(self.get()) - @sizeOf(T));
                 std.debug.assert(@intFromPtr(dynamic.ptr) <= dynamic_limit);
@@ -203,7 +203,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
         /// Creates a new, independent Wrapper containing a deep copy of the data.
         /// `new_val` is modified in-place; is stores then pointers inside of the returned wrapper
-        pub fn clone(self: *const @This(), old_val: *const T, gpa: std.mem.Allocator) !std.meta.Tuple(&.{ T, @This() }) {
+        pub fn clone(self: *const @This(), old_val: *const T, gpa: std.mem.Allocator) !@Tuple(&.{ T, @This() }) {
             // We could return try @This().init(allocator, self.get());
             // But that would be 2 operations. getSize and init. this is only 1 operation; repointer
             const retval: @This() = .{ .memory = try gpa.alignedAlloc(u8, alignment, self.memory.len) };
@@ -228,14 +228,14 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
         /// Set a new value into the wrapper, asserting that underlying allocation can hold it. Invalidates any references to the old value
         /// NOTE: We expects there to be no data cycles [No *A.b pointing to *B and *B.a pointing to *A]
         pub fn setAssert(self: *const @This(), val: *T) void {
-            if (builtin.mode == .Debug) { // debug.assert alone may not be optimized out
+            if (builtin.mode == .debug) { // debug.assert alone may not be optimized out
                 std.debug.assert(getSize(val) <= self.memory.len);
             }
 
             var dynamic_buffer = SF.Dynamic.init(self.memory);
             MergedT.write(val, &dynamic_buffer);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 std.debug.assert(@intFromPtr(dynamic_buffer.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
             }
         }
@@ -257,7 +257,7 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
         fn _repointer(self: *const @This(), val: *T, comptime safe: bool) if (safe) SF.RepointError!void else error{}!void {
             var dynamic = meta.Mem(.@"1", safe).init(self.memory);
             try MergedT.repointer(safe, val, &dynamic);
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 std.debug.assert(@intFromPtr(dynamic.ptr) <= @intFromPtr(self.memory.ptr) + getSize(val));
             }
         }

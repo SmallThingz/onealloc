@@ -102,9 +102,9 @@ fn expectEqual(expected: anytype, actual: anytype) error{TestExpectedEqual}!void
         },
 
         .@"struct" => |structType| {
-            inline for (structType.fields) |field| {
-                errdefer print("field `{s}` incorrect\n", .{field.name});
-                try expectEqual(@field(expected, field.name), @field(actual, field.name));
+            inline for (structType.field_names) |field_name| {
+                errdefer print("field `{s}` incorrect\n", .{field_name});
+                try expectEqual(@field(expected, field_name), @field(actual, field_name));
             }
         },
 
@@ -1142,7 +1142,7 @@ test "meta: NonConstPointer with different sizes" {
 
     try testing.expect(@typeInfo(One).pointer.size == .one);
     try testing.expect(@typeInfo(Slice).pointer.size == .slice);
-    try testing.expect(@typeInfo(One).pointer.is_const == false);
+    try testing.expect(@typeInfo(One).pointer.attrs.@"const" == false);
 }
 
 test "root: Wrapper.set with exact same size (remap path)" {

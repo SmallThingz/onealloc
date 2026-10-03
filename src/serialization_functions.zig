@@ -44,9 +44,9 @@ pub fn GetPointerMergedT(context: Context) type {
 
     const T = context.Type;
     const pi = @typeInfo(T).pointer;
-    const ptr_alignment = pi.alignment orelse @alignOf(pi.child);
+    const ptr_alignment = pi.attrs.@"align" orelse @alignOf(pi.child);
     std.debug.assert(pi.size == .one);
-    if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
+    if (!context.options.dereference_const_pointers and pi.attrs.@"const") return GetDirectMergedT(context);
 
     const Retval = opaque {
         pub const Underlying = MergedSignature{
@@ -66,7 +66,7 @@ pub fn GetPointerMergedT(context: Context) type {
             child_static.* = val.*.*;
             Child.write(child_static, dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -90,7 +90,7 @@ pub fn GetPointerMergedT(context: Context) type {
             val.* = @ptrCast(aligned_dynamic.ptr); // TODO: figure out if this is ok
             try Child.repointer(safe, val.*, dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -106,11 +106,11 @@ pub fn GetSliceMergedT(context: Context) type {
 
     const T = context.Type;
     const pi = @typeInfo(T).pointer;
-    const ptr_alignment = pi.alignment orelse @alignOf(pi.child);
+    const ptr_alignment = pi.attrs.@"align" orelse @alignOf(pi.child);
     const sentinel = pi.sentinel();
     const sentinel_len: usize = if (sentinel == null) 0 else 1;
     std.debug.assert(pi.size == .slice);
-    if (!context.options.dereference_const_pointers and pi.is_const) return GetDirectMergedT(context);
+    if (!context.options.dereference_const_pointers and pi.attrs.@"const") return GetDirectMergedT(context);
 
     const Retval = opaque {
         pub const Underlying = MergedSignature{
@@ -140,7 +140,7 @@ pub fn GetSliceMergedT(context: Context) type {
                 if (sentinel_len != 0) Child.write(&child_static_ptr[len], dynamic);
             }
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -179,7 +179,7 @@ pub fn GetSliceMergedT(context: Context) type {
                 if (sentinel_len != 0) try Child.repointer(safe, &child_static_ptr[len], dynamic);
             }
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -211,7 +211,7 @@ pub fn GetArrayMergedT(context: Context) type {
             var ogptr = @intFromPtr(dynamic.ptr);
             for (val) |*elem| Child.write(elem, dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -226,7 +226,7 @@ pub fn GetArrayMergedT(context: Context) type {
             // No inline here, expect auto inlining if compiler deems appropriate; force inlining causes bloat
             for (val) |*elem| try Child.repointer(safe, elem, dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -240,7 +240,7 @@ pub fn GetStructMergedT(context: Context) type {
 
     const si = @typeInfo(T).@"struct";
     const ProcessedField = struct {
-        original: std.builtin.Type.StructField,
+        original: struct { name: [:0]const u8, type: type },
         merged: type,
     };
 
@@ -257,11 +257,11 @@ pub fn GetStructMergedT(context: Context) type {
 
         const fields = blk: {
             @setEvalBranchQuota(1000_000);
-            var pfields: [si.fields.len]ProcessedField = undefined;
-            for (si.fields, 0..) |f, i| {
+            var pfields: [si.field_names.len]ProcessedField = undefined;
+            for (si.field_names, si.field_types, 0..) |name, Field, i| {
                 pfields[i] = .{
-                    .original = f,
-                    .merged = context.T(f.type).merge(root.ToMergedT),
+                    .original = .{ .name = name, .type = Field },
+                    .merged = context.T(Field).merge(root.ToMergedT),
                 };
             }
             break :blk pfields;
@@ -295,7 +295,7 @@ pub fn GetStructMergedT(context: Context) type {
                 fn greaterThan(self: @This(), lhs: usize, rhs: usize) bool {
                     const ls = self.fields[lhs].merged.Underlying;
                     const rs = self.fields[rhs].merged.Underlying;
-                    if (ls._align != rs._align) return @intFromEnum(ls._align) > @intFromEnum(rs._align);
+                    if (ls._align != rs._align) return @backingInt(ls._align) > @backingInt(rs._align);
                     return false;
                 }
 
@@ -317,7 +317,7 @@ pub fn GetStructMergedT(context: Context) type {
                 f.merged.write(&@field(val, f.original.name), dynamic);
             }
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -337,7 +337,7 @@ pub fn GetStructMergedT(context: Context) type {
                 try f.merged.repointer(safe, &@field(val, f.original.name), dynamic);
             }
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -362,7 +362,7 @@ pub fn GetOptionalMergedT(context: Context) type {
                 var ogptr = @intFromPtr(dynamic.ptr);
                 Child.write(&(val.*.?), dynamic);
 
-                if (builtin.mode == .Debug) {
+                if (builtin.mode == .debug) {
                     addDynamicSize(val, &ogptr);
                     std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
                 }
@@ -378,7 +378,7 @@ pub fn GetOptionalMergedT(context: Context) type {
                 var ogptr = @intFromPtr(dynamic.ptr);
                 try Child.repointer(safe, &(val.*.?), dynamic);
 
-                if (builtin.mode == .Debug) {
+                if (builtin.mode == .debug) {
                     addDynamicSize(val, &ogptr);
                     std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
                 }
@@ -402,7 +402,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
             var ogptr = @intFromPtr(dynamic.ptr);
             Child.write(&(val.* catch return), dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -416,7 +416,7 @@ pub fn GetErrorUnionMergedT(context: Context) type {
             var ogptr = @intFromPtr(dynamic.ptr);
             try Child.repointer(safe, &(val.* catch return), dynamic);
 
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 addDynamicSize(val, &ogptr);
                 std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
             }
@@ -429,7 +429,7 @@ pub fn GetUnionMergedT(context: Context) type {
     const ui = @typeInfo(T).@"union";
 
     const ProcessedField = struct {
-        original: std.builtin.Type.UnionField,
+        original: struct { name: [:0]const u8, type: type },
         merged: type,
     };
 
@@ -450,10 +450,10 @@ pub fn GetUnionMergedT(context: Context) type {
         };
 
         const fields = blk: {
-            var pfields: [ui.fields.len]ProcessedField = undefined;
-            for (ui.fields, 0..) |f, i| pfields[i] = .{
-                .original = f,
-                .merged = context.T(f.type).merge(root.ToMergedT),
+            var pfields: [ui.field_names.len]ProcessedField = undefined;
+            for (ui.field_names, ui.field_types, 0..) |name, Field, i| pfields[i] = .{
+                .original = .{ .name = name, .type = Field },
+                .merged = context.T(Field).merge(root.ToMergedT),
             };
             break :blk pfields;
         };
@@ -467,7 +467,7 @@ pub fn GetUnionMergedT(context: Context) type {
                     var ogptr = @intFromPtr(dynamic.ptr);
                     f.merged.write(&@field(val, f.original.name), dynamic);
 
-                    if (builtin.mode == .Debug) {
+                    if (builtin.mode == .debug) {
                         addDynamicSize(val, &ogptr);
                         std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
                     }
@@ -499,7 +499,7 @@ pub fn GetUnionMergedT(context: Context) type {
                     var ogptr = @intFromPtr(dynamic.ptr);
                     try f.merged.repointer(safe, &@field(val, f.original.name), dynamic);
 
-                    if (builtin.mode == .Debug) {
+                    if (builtin.mode == .debug) {
                         addDynamicSize(val, &ogptr);
                         std.debug.assert(@intFromPtr(dynamic.ptr) == ogptr);
                     }
