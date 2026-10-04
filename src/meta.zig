@@ -29,8 +29,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn from(self: @This(), index: usize) @TypeOf(T.from(undefined, index)) {
-            const RetType = @TypeOf(T.from(undefined, index));
+        pub inline fn from(self: @This(), index: usize) T.FromRet {
+            const RetType = T.FromRet;
             return switch (self) {
                 .value => |v| v.from(index),
                 .err => |e| blk: {
@@ -40,8 +40,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn alignForward(self: @This(), comptime new_alignment: usize) @TypeOf(T.alignForward(undefined, new_alignment)) {
-            const RetType = @TypeOf(T.alignForward(undefined, new_alignment));
+        pub inline fn alignForward(self: @This(), comptime new_alignment: usize) T.AlignRet(new_alignment) {
+            const RetType = T.AlignRet(new_alignment);
             return switch (self) {
                 .value => |v| v.alignForward(new_alignment),
                 .err => |e| blk: {
@@ -51,8 +51,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn assertAligned(self: @This(), comptime new_alignment: usize) @TypeOf(T.assertAligned(undefined, new_alignment)) {
-            const RetType = @TypeOf(T.assertAligned(undefined, new_alignment));
+        pub inline fn assertAligned(self: @This(), comptime new_alignment: usize) T.AlignRet(new_alignment) {
+            const RetType = T.AlignRet(new_alignment);
             return switch (self) {
                 .value => |v| v.assertAligned(new_alignment),
                 .err => |e| blk: {

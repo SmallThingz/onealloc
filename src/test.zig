@@ -871,6 +871,86 @@ test "Wrapper repointer" {
     try testing.expect(slice_start >= memory_start and slice_end <= memory_end);
 }
 
+test "safe repointer memory chains preserve bounds and errors" {
+    var bytes: [32]u8 align(8) = undefined;
+    const SafeMem = meta.Mem(.@"1", true);
+    const chained = try SafeMem.init(&bytes).from(1).alignForward(8).assertAligned(8).from(0).unwrap();
+    try testing.expectEqual(@intFromPtr(&bytes) + 8, @intFromPtr(chained.ptr));
+    try testing.expectEqual(@as(usize, 24), chained.len);
+    try testing.expectError(error.OutOfBounds, SafeMem.init(&bytes).from(33).alignForward(8).assertAligned(8).from(0).unwrap());
+    const failed: meta.MaybeError(SafeMem) = .{ .err = error.Overflow };
+    try testing.expectError(error.Overflow, failed.from(0).alignForward(8).assertAligned(8).unwrap());
+}
+
+test "Wrapper safe repointer relocates and rejects truncated buffers" {
+    const Data = struct { id: u64, text: []const u8 };
+    const W = root.Wrapper(Data, .{});
+    const original = try W.init(&.{ .id = 42, .text = "safe relocation" }, testing.allocator);
+    defer original.deinit(testing.allocator);
+
+    const relocated: W = .{ .memory = try testing.allocator.alignedAlloc(u8, W.alignment, original.memory.len) };
+    defer relocated.deinit(testing.allocator);
+    @memcpy(relocated.memory, original.memory);
+    try relocated.repointer();
+    try testing.expectEqual(@as(u64, 42), relocated.get().id);
+    try testing.expectEqualStrings("safe relocation", relocated.get().text);
+    try testing.expect(relocated.get().text.ptr != original.get().text.ptr);
+    try testing.expect(@intFromPtr(relocated.get().text.ptr) >= @intFromPtr(relocated.memory.ptr));
+    try testing.expect(@intFromPtr(relocated.get().text.ptr) + relocated.get().text.len <= @intFromPtr(relocated.memory.ptr) + relocated.memory.len);
+
+    const truncated: W = .{ .memory = try testing.allocator.alignedAlloc(u8, W.alignment, original.memory.len - 1) };
+    defer truncated.deinit(testing.allocator);
+    @memcpy(truncated.memory, original.memory[0..truncated.memory.len]);
+    try testing.expectError(error.OutOfBounds, truncated.repointer());
+
+    const short_header: W = .{ .memory = try testing.allocator.alignedAlloc(u8, W.alignment, @sizeOf(Data) - 1) };
+    defer short_header.deinit(testing.allocator);
+    try testing.expectError(error.OutOfBounds, short_header.repointer());
+}
+
+test "Wrapper safe repointer accepts an empty dynamic payload" {
+    const Data = struct { text: []const u8 };
+    const W = root.Wrapper(Data, .{});
+    const wrapped = try W.init(&.{ .text = "" }, testing.allocator);
+    defer wrapped.deinit(testing.allocator);
+    try testing.expectEqual(@sizeOf(Data), wrapped.memory.len);
+    try wrapped.repointer();
+    try testing.expectEqualStrings("", wrapped.get().text);
+}
+
+test "DynamicWrapper safe repointer relocates and rejects truncated buffers" {
+    const Data = struct { id: u64, text: []const u8 };
+    const W = root.DynamicWrapper(Data, .{});
+    var value = Data{ .id = 42, .text = "safe dynamic relocation" };
+    const original = try W.init(&value, testing.allocator);
+    defer original.deinit(testing.allocator);
+
+    const relocated: W = .{ .memory = try testing.allocator.alignedAlloc(u8, W.alignment, original.memory.len) };
+    defer relocated.deinit(testing.allocator);
+    @memcpy(relocated.memory, original.memory);
+    var relocated_value = value;
+    try relocated.repointer(&relocated_value);
+    try testing.expectEqual(@as(u64, 42), relocated_value.id);
+    try testing.expectEqualStrings("safe dynamic relocation", relocated_value.text);
+    try testing.expect(relocated_value.text.ptr != value.text.ptr);
+    try testing.expect(@intFromPtr(relocated_value.text.ptr) >= @intFromPtr(relocated.memory.ptr));
+    try testing.expect(@intFromPtr(relocated_value.text.ptr) + relocated_value.text.len <= @intFromPtr(relocated.memory.ptr) + relocated.memory.len);
+
+    const truncated: W = .{ .memory = try testing.allocator.alignedAlloc(u8, W.alignment, original.memory.len - 1) };
+    defer truncated.deinit(testing.allocator);
+    @memcpy(truncated.memory, original.memory[0..truncated.memory.len]);
+    var truncated_value = value;
+    try testing.expectError(error.OutOfBounds, truncated.repointer(&truncated_value));
+
+    var empty_value = Data{ .id = 7, .text = "" };
+    const empty = try W.init(&empty_value, testing.allocator);
+    defer empty.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 0), empty.memory.len);
+    try empty.repointer(&empty_value);
+    try testing.expectEqual(@as(u64, 7), empty_value.id);
+    try testing.expectEqualStrings("", empty_value.text);
+}
+
 test "serialization_functions: unknown pointers as usize" {
     const S = struct { ptr: [*]u8 };
     var dummy: u8 = 0;

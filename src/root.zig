@@ -139,16 +139,16 @@ pub fn WrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        pub fn repointer(self: *const @This()) SF.RepointError!void {
+        pub fn repointer(self: *const @This()) SF.RepointError(true)!void {
             try self._repointer(true);
         }
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        fn _repointer(self: *const @This(), comptime safe: bool) if (safe) SF.RepointError!void else error{}!void {
+        fn _repointer(self: *const @This(), comptime safe: bool) SF.RepointError(safe)!void {
             if (STATIC) return {};
             if (comptime safe) {
-                if (@sizeOf(T) >= self.memory.len) return SF.RepointError.OutOfBounds;
+                if (@sizeOf(T) > self.memory.len) return error.OutOfBounds;
             }
 
             var dynamic = meta.Mem(.@"1", safe).init(self.memory[@sizeOf(T)..]);
@@ -248,13 +248,13 @@ pub fn DynamicWrapConverted(_T: type, MergedT: type) type {
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        pub fn repointer(self: *const @This(), val: *T) SF.RepointError!void {
+        pub fn repointer(self: *const @This(), val: *T) SF.RepointError(true)!void {
             try self._repointer(val, true);
         }
 
         /// Updates the internal pointers within the merged data structure. This is necessary
         /// if the underlying `memory` buffer is moved (e.g., after a memcpy).
-        fn _repointer(self: *const @This(), val: *T, comptime safe: bool) if (safe) SF.RepointError!void else error{}!void {
+        fn _repointer(self: *const @This(), val: *T, comptime safe: bool) SF.RepointError(safe)!void {
             var dynamic = meta.Mem(.@"1", safe).init(self.memory);
             try MergedT.repointer(safe, val, &dynamic);
             if (builtin.mode == .debug) {
