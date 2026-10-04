@@ -29,8 +29,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn from(self: @This(), index: usize) @TypeOf(T.from(undefined, index)) {
-            const RetType = @TypeOf(T.from(undefined, index));
+        pub inline fn from(self: @This(), index: usize) T.FromRet {
+            const RetType = T.FromRet;
             return switch (self) {
                 .value => |v| v.from(index),
                 .err => |e| blk: {
@@ -40,8 +40,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn alignForward(self: @This(), comptime new_alignment: usize) @TypeOf(T.alignForward(undefined, new_alignment)) {
-            const RetType = @TypeOf(T.alignForward(undefined, new_alignment));
+        pub inline fn alignForward(self: @This(), comptime new_alignment: usize) T.AlignRet(new_alignment) {
+            const RetType = T.AlignRet(new_alignment);
             return switch (self) {
                 .value => |v| v.alignForward(new_alignment),
                 .err => |e| blk: {
@@ -51,8 +51,8 @@ pub fn MaybeError(comptime T: type) type {
             };
         }
 
-        pub inline fn assertAligned(self: @This(), comptime new_alignment: usize) @TypeOf(T.assertAligned(undefined, new_alignment)) {
-            const RetType = @TypeOf(T.assertAligned(undefined, new_alignment));
+        pub inline fn assertAligned(self: @This(), comptime new_alignment: usize) T.AlignRet(new_alignment) {
+            const RetType = T.AlignRet(new_alignment);
             return switch (self) {
                 .value => |v| v.assertAligned(new_alignment),
                 .err => |e| blk: {
@@ -79,7 +79,7 @@ pub fn MaybeError(comptime T: type) type {
 /// When safe=true, advancing methods (from, alignForward) return MaybeError(Mem(...))
 /// instead of plain Mem, allowing errors to propagate without panicking.
 pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
-    const keep_len = builtin.mode == .Debug or safe;
+    const keep_len = builtin.mode == .debug or safe;
 
     return struct {
         ptr: [*]align(_alignment.toByteUnits()) u8,
@@ -102,7 +102,7 @@ pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
                 if (index > self.len) {
                     @branchHint(.cold);
                     if (safe) return FromRet{ .err = error.OutOfBounds };
-                    if (builtin.mode == .Debug) {
+                    if (builtin.mode == .debug) {
                         std.debug.panic("Index {d} is out of bounds for slice of length {d}\n", .{ index, self.len });
                     }
                 }
@@ -113,7 +113,7 @@ pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
         }
 
         pub inline fn assertAligned(self: @This(), comptime new_alignment: usize) AlignRet(new_alignment) {
-            if (builtin.mode == .Debug) {
+            if (builtin.mode == .debug) {
                 std.debug.assert(std.mem.isAligned(@intFromPtr(self.ptr), new_alignment));
             }
             const Aligned = Mem(.fromByteUnits(new_alignment), safe);
@@ -129,14 +129,14 @@ pub fn Mem(comptime _alignment: std.mem.Alignment, comptime safe: bool) type {
                 if (aligned_ptr < addr) {
                     @branchHint(.cold);
                     if (safe) return AlignRet(new_alignment){ .err = error.Overflow };
-                    if (builtin.mode == .Debug) {
+                    if (builtin.mode == .debug) {
                         std.debug.panic("alignForward overflow at address 0x{x}", .{addr});
                     }
                 }
                 if (aligned_ptr - addr > self.len) {
                     @branchHint(.cold);
                     if (safe) return AlignRet(new_alignment){ .err = error.OutOfBounds };
-                    if (builtin.mode == .Debug) {
+                    if (builtin.mode == .debug) {
                         std.debug.panic("alignForward oob at address 0x{x}", .{addr});
                     }
                 }
@@ -223,10 +223,10 @@ pub fn NonConstPointer(T: type, size: std.builtin.Type.Pointer.Size) type {
     const info = @typeInfo(T).pointer;
     return @Pointer(size, .{
         .@"const" = false,
-        .@"volatile" = info.is_volatile,
-        .@"allowzero" = info.is_allowzero,
-        .@"addrspace" = info.address_space,
-        .@"align" = info.alignment,
+        .@"volatile" = info.attrs.@"volatile",
+        .@"allowzero" = info.attrs.@"allowzero",
+        .@"addrspace" = info.attrs.@"addrspace",
+        .@"align" = info.attrs.@"align",
     }, info.child, switch (size) {
         .many, .slice => info.sentinel(),
         .one, .c => null,

@@ -57,6 +57,8 @@ pub fn main() !void {
 }
 ```
 
+Requires Zig 0.17.0. Run `zig build test` for the unit suite.
+
 ## Installation
 
 1.  Add to `build.zig.zon`:

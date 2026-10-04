@@ -1,15 +1,15 @@
 .{
-  .name = .onealloc,
-  .version = "0.1.0",
-  .fingerprint = 0x4de8a7a7f4865766,
-  .paths = .{
-    "build.zig",
-    "build.zig.zon",
-    "src/meta.zig",
-    "src/root.zig",
-    "src/serialization_functions.zig",
-    "LICENSE",
-    "readme.md",
-  },
+    .name = .onealloc,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.17.0",
+    .fingerprint = 0x4de8a7a7f4865766,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/meta.zig",
+        "src/root.zig",
+        "src/serialization_functions.zig",
+        "LICENSE",
+        "README.md",
+    },
 }
-
